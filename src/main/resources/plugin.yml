@@ -1,0 +1,39 @@
+name: BbParcels
+version: '1.0-SNAPSHOT'
+main: com.bbparcels.BbParcels
+api-version: '1.20'
+description: BB Parcels Plugin
+authors:
+  - bobiche
+
+
+depend:
+  - WorldGuard
+  - WorldEdit
+
+commands:
+  parceladmin:
+    description: Commandes d'administration des parcelles
+    usage: /parceladmin <add|delete>
+    permission: bbparcels.admin
+
+  parcelagent:
+    description: Commandes de gestion des locations
+    usage: /parcelagent <rent|list|info|unrent>
+    permission: bbparcels.agentImmo
+
+  myparcel:
+    description: Gérer ma parcelle
+    usage: /myparcel <parcelLabel> <add|list|remove> <playerName>
+
+permissions:
+  bbparcels.admin:
+    description: Accès aux commandes admin BbParcels
+    default: op
+    children:
+      bbparcels.agentImmo: true
+  
+  bbparcels.agentImmo:
+    description: Peut gérer les locations des parcelles
+    default: false
+    

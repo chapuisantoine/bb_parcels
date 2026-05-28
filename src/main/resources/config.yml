@@ -1,0 +1,8 @@
+database:
+  host: localhost
+  port: 3307
+  name: bb_parcels
+  username: bb_user
+  password: bb_password
+  pool-size: 10
+
