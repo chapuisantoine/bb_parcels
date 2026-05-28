@@ -8,7 +8,7 @@ import com.sk89q.worldguard.WorldGuard
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 
-class AddParcelCommand(private val plugin: BbParcels) : SubAdminCommand {
+class AddParcelCommand(plugin: BbParcels) : SubAdminCommand {
 
     private val repo = ParcelRepository(plugin.databaseManager)
 

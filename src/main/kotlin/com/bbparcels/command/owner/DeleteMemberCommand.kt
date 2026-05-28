@@ -10,7 +10,7 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import java.util.*
 
-class DeleteMemberCommand(private val plugin: BbParcels) : SubOwnerCommand {
+class DeleteMemberCommand(plugin: BbParcels) : SubOwnerCommand {
 
     private val parcelRepo = ParcelRepository(plugin.databaseManager)
     private val rentalMemberRepo = RentalMemberRepository(plugin.databaseManager)

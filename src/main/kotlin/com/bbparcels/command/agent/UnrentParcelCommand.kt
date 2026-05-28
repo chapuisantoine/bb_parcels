@@ -11,7 +11,7 @@ import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import java.util.*
 
-class UnrentParcelCommand(private val plugin: BbParcels) : SubAgentCommand {
+class UnrentParcelCommand(plugin: BbParcels) : SubAgentCommand {
 
     private val parcelRepo = ParcelRepository(plugin.databaseManager)
     private val rentalRepo = RentalRepository(plugin.databaseManager)

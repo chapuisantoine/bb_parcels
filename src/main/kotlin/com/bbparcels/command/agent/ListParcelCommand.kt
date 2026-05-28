@@ -7,7 +7,7 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import java.util.*
 
-class ListParcelCommand(private val plugin: BbParcels) : SubAgentCommand {
+class ListParcelCommand(plugin: BbParcels) : SubAgentCommand {
     
     private val repo = ParcelRepository(plugin.databaseManager)
     
