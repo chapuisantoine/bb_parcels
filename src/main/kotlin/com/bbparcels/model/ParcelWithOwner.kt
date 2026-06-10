@@ -1,6 +1,7 @@
 package com.bbparcels.model
 
 data class ParcelWithOwner(
+    val id: Int,
     val regionId: String,
     val world: String,
     val label: String,

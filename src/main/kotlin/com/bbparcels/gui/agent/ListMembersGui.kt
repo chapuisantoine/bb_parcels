@@ -1,0 +1,100 @@
+package com.bbparcels.gui.agent
+
+import com.bbparcels.model.ParcelWithOwner
+import org.bukkit.Bukkit
+import org.bukkit.Material
+import org.bukkit.entity.Player
+import org.bukkit.inventory.Inventory
+import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.meta.SkullMeta
+import java.util.*
+
+object ListMembersGui {
+        
+    private val playerPages   = mutableMapOf<UUID, Int>()
+    private val cachedMembers = mutableMapOf<UUID, List<Player>>()
+    private val cachedParcel = mutableMapOf<UUID, ParcelWithOwner>()
+
+    private val BORDER_SLOTS  = (0..8).toList() + (45..53).toList() + listOf(9, 18, 27, 36, 17, 26, 35, 44)
+    private val CONTENT_SLOTS = (10..16).toList() + (19..25).toList()
+    private const val SLOT_PREV = 39
+    private const val SLOT_NEXT = 41
+    private const val SLOT_RETURN = 43
+    
+    
+    fun open(player: Player, members: List<Player>, parcel: ParcelWithOwner, page: Int = 0) {
+        //TODO pour check si ca fonctionne
+        val members = members.plusElement(player)
+                
+        cachedMembers[player.uniqueId] = members
+        cachedParcel[player.uniqueId]  = parcel
+        
+        val totalPages  = ((members.size - 1) / CONTENT_SLOTS.size).coerceAtLeast(0)
+        val currentPage = page.coerceIn(0, totalPages)
+        playerPages[player.uniqueId] = currentPage
+
+        val inv = Bukkit.createInventory(null, 54, "[BB] Membres de la parcelle")
+        fillBorders(inv)
+
+        members
+            .drop(currentPage * CONTENT_SLOTS.size)
+            .take(CONTENT_SLOTS.size)
+            .forEachIndexed { index, member ->
+                inv.setItem(CONTENT_SLOTS[index], buildHeadItem(member))
+            }
+            
+        if (currentPage > 0)
+            inv.setItem(SLOT_PREV, buildNavItem(Material.ARROW, "§ePage précédente"))
+        if (currentPage < totalPages)
+            inv.setItem(SLOT_NEXT, buildNavItem(Material.ARROW, "§ePage suivante"))
+
+        inv.setItem(SLOT_RETURN, buildNavItem(Material.BARRIER, "§7Retour"))
+        player.openInventory(inv)
+    }
+    
+    
+    fun handleClick(player: Player, slot: Int) {
+        val page    = playerPages[player.uniqueId] ?: 0
+        val members = cachedMembers[player.uniqueId] ?: return
+        val parcel  = cachedParcel[player.uniqueId] ?: return
+        when (slot) {
+            SLOT_PREV   -> open(player, members, parcel, page - 1)
+            SLOT_NEXT   -> open(player, members, parcel, page + 1)
+            SLOT_RETURN -> ParcelDetailGui.open(player, parcel)
+            in CONTENT_SLOTS -> {
+                val index  = page * CONTENT_SLOTS.size + CONTENT_SLOTS.indexOf(slot)
+                val target = members.getOrNull(index) ?: return
+                ConfirmRentGui.open(player, parcel, target)
+            }
+        }
+    }
+    
+    private fun buildHeadItem(member: Player): ItemStack {
+        val item    = ItemStack(Material.PLAYER_HEAD)
+        val meta    = item.itemMeta as SkullMeta
+        meta.owningPlayer = member
+        meta.setDisplayName("§e${member.name}")
+        item.itemMeta = meta
+        return item
+    }
+    
+    
+    private fun buildNavItem(material: Material, name: String): ItemStack {
+        val item = ItemStack(material)
+        val meta = item.itemMeta!!
+        meta.setDisplayName(name)
+        item.itemMeta = meta
+        return item
+    }
+    
+    private fun fillBorders(inv: Inventory) {
+        for (slot in BORDER_SLOTS) {
+            val material = if (slot % 2 == 0) Material.BLUE_STAINED_GLASS_PANE else Material.CYAN_STAINED_GLASS_PANE
+            val item = ItemStack(material)
+            val meta = item.itemMeta!!
+            meta.setDisplayName("§r")
+            item.itemMeta = meta
+            inv.setItem(slot, item)
+        }
+    }
+}

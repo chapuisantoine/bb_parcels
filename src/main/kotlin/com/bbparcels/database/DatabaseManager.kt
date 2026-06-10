@@ -22,6 +22,14 @@ class DatabaseManager(private val plugin: BbParcels) {
             connectionTimeout = 30_000
             idleTimeout = 600_000
             maxLifetime = 1_800_000
+            
+            val pluginClassLoader = plugin.javaClass.classLoader
+            threadFactory = java.util.concurrent.ThreadFactory { runnable ->
+                Thread {
+                    Thread.currentThread().contextClassLoader = pluginClassLoader
+                    runnable.run()
+                }
+            }
         }
 
         val previous = Thread.currentThread().contextClassLoader

@@ -25,7 +25,7 @@ class RentParcelCommand (private val plugin: BbParcels) : SubAgentCommand {
         }
         
         if (args.size < 2) {
-            sender.sendMessage("§cUsage : /parcelagent rent <parcelName> <playerName> [description...]")
+            sender.sendMessage("§cUsage : /parcelagent rent <parcelLabel> <playerName> [description...]")
             return true
         }
         
@@ -91,20 +91,18 @@ class RentParcelCommand (private val plugin: BbParcels) : SubAgentCommand {
             sender.sendMessage("§a✔ §e$playerName §aest maintenant locataire de la Parcelle §e$parcelName §a!")
         }
         else
-            sender.sendMessage("§cErreur lors de l'insertion en base.")
+            sender.sendMessage("§cErreur lors de la location.")
         
         return true
     }
     
     override fun tabComplete(sender: CommandSender, args: List<String>): List<String> {
         return when (args.size) {
-            // arg 1 — propose les labels des parcelles disponibles
             1 -> parcelRepo.findAll()
                     .filter { it.status == ParcelStatus.AVAILABLE }
                     .map { it.label }
                     .filter { it.startsWith(args[0], ignoreCase = true) }
-
-            // arg 2 — propose les joueurs en ligne
+                    
             2 -> Bukkit.getOnlinePlayers()
                     .map { it.name }
                     .filter { it.startsWith(args[1], ignoreCase = true) }

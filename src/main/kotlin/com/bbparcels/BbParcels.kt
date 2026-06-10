@@ -5,6 +5,8 @@ import com.bbparcels.command.agent.AgentCommand
 import com.bbparcels.command.owner.OwnerCommand
 import com.bbparcels.config.PluginConfig
 import com.bbparcels.database.DatabaseManager
+import com.bbparcels.gui.agent.AgentGuiListener
+import com.bbparcels.gui.owner.OwnerGuiListener
 import org.bukkit.plugin.java.JavaPlugin
 
 class BbParcels : JavaPlugin() {
@@ -27,16 +29,16 @@ class BbParcels : JavaPlugin() {
         val pluginConfig = PluginConfig(config)
         
         getCommand("parceladmin")?.let { cmd ->
-        val handler = AdminCommand(this)
-        cmd.setExecutor(handler)
-        cmd.tabCompleter = handler
+            val handler = AdminCommand(this)
+            cmd.setExecutor(handler)
+            cmd.tabCompleter = handler
         }
         
         
         getCommand("parcelagent")?.let { cmd ->
-        val handler = AgentCommand(this, pluginConfig)
-        cmd.setExecutor(handler)
-        cmd.tabCompleter = handler
+            val handler = AgentCommand(this, pluginConfig)
+            cmd.setExecutor(handler)
+            cmd.tabCompleter = handler
         }
         
         getCommand("myparcel")?.let { cmd ->
@@ -44,6 +46,9 @@ class BbParcels : JavaPlugin() {
             cmd.setExecutor(handler)
             cmd.tabCompleter = handler
         }
+        
+        server.pluginManager.registerEvents(AgentGuiListener(), this)
+        server.pluginManager.registerEvents(OwnerGuiListener(), this)
 
         logger.info("BbParcels plugin enabled!")
     }

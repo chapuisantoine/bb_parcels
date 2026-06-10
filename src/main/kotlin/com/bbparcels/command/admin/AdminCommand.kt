@@ -11,6 +11,9 @@ class AdminCommand(plugin: BbParcels) : CommandExecutor, TabCompleter {
     private val subCommands: Map<String, SubAdminCommand> = mapOf(
         "add"    to AddParcelCommand(plugin),
         "delete" to DeleteParcelCommand(plugin),
+        "find" to findParcelCommand(plugin),
+        "givetablet" to GiveTabletCommand(),
+        "givekey" to GiveParcelKeyCommand(plugin)
     )
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
@@ -37,7 +40,10 @@ class AdminCommand(plugin: BbParcels) : CommandExecutor, TabCompleter {
 
     private fun sendHelp(sender: CommandSender) {
         sender.sendMessage("§6§l=== Parcels Admin ===")
-        sender.sendMessage("§e/parceladmin add <region_id> <label> [description]")
+        sender.sendMessage("§e/parceladmin add <region_id> <parcelLabel> [description]")
+        sender.sendMessage("§e/parceladmin find <parcelLabel>")
         sender.sendMessage("§e/parceladmin delete <id>")
+        sender.sendMessage("§e/parceladmin givetablet <playerName>")
+        sender.sendMessage("§e/parceladmin givekey <parcelLabel> <playerName>")
     }
 }

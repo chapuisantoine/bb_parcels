@@ -27,7 +27,9 @@ class OwnerCommand (plugin: BbParcels): CommandExecutor, TabCompleter {
         if (sub == null) { sendHelp(sender); return true }
 
         // passe [parcelLabel, playerName] à la sous-commande
-        return sub.execute(sender, listOf(args[0]) + args.drop(2))
+        val subArgs = mutableListOf(args[0])
+        subArgs.addAll(args.drop(2))
+        return sub.execute(sender, subArgs)
     }
 
     override fun onTabComplete(sender: CommandSender, command: Command, label: String, args: Array<out String>): List<String> {
@@ -46,7 +48,9 @@ class OwnerCommand (plugin: BbParcels): CommandExecutor, TabCompleter {
             // arg 3+ — délègue avec [parcelLabel, playerPrefix]
             else -> {
                 val sub = subCommands[args[1].lowercase()] ?: return emptyList()
-                sub.tabComplete(sender, listOf(args[0]) + args.drop(2))
+                val subArgs = mutableListOf(args[0])
+                subArgs.addAll(args.drop(2))
+                return sub.tabComplete(sender, subArgs)
             }
         }
     }

@@ -6,15 +6,14 @@ description: BB Parcels Plugin
 authors:
   - bobiche
 
-
 depend:
   - WorldGuard
   - WorldEdit
 
 commands:
   parceladmin:
-    description: Commandes d'administration des parcelles
-    usage: /parceladmin <add|delete>
+    description: Commandes administration des parcelles
+    usage: /parceladmin <add|find|delete|givetablet|givekey>
     permission: bbparcels.admin
 
   parcelagent:
@@ -23,17 +22,16 @@ commands:
     permission: bbparcels.agentImmo
 
   myparcel:
-    description: Gérer ma parcelle
+    description: Gerer ma parcelle
     usage: /myparcel <parcelLabel> <add|list|remove> <playerName>
 
 permissions:
   bbparcels.admin:
-    description: Accès aux commandes admin BbParcels
+    description: Acces aux commandes admin BbParcels
     default: op
     children:
       bbparcels.agentImmo: true
-  
+
   bbparcels.agentImmo:
-    description: Peut gérer les locations des parcelles
+    description: Peut gerer les locations des parcelles
     default: false
-    

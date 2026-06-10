@@ -48,7 +48,7 @@ class RentalRepository(private val db: DatabaseManager) {
                     ps.setInt(1, rental.parcelId)
                     ps.setString(2, rental.tenantUuid)
                     ps.setTimestamp(3, Timestamp.valueOf(rental.startDate))
-                    ps.setString(5, rental.status.value)
+                    ps.setString(4, rental.status.value)
                     ps.executeUpdate()
                     ps.generatedKeys.use { rs ->
                         if (rs.next()) rs.getInt(1)
@@ -93,7 +93,7 @@ class RentalRepository(private val db: DatabaseManager) {
                             parcelId   = rs.getInt("parcel_id"),
                             tenantUuid = rs.getString("tenant_uuid"),
                             startDate  = rs.getTimestamp("start_date").toLocalDateTime(),
-                            endDate    = rs.getTimestamp("end_date").toLocalDateTime(),
+                            endDate    = rs.getTimestamp("end_date")?.toLocalDateTime(),
                             status     = RentalStatus.ACTIVE
                         )
                     }
@@ -120,7 +120,7 @@ class RentalRepository(private val db: DatabaseManager) {
                                 parcelId   = rs.getInt("parcel_id"),
                                 tenantUuid = rs.getString("tenant_uuid"),
                                 startDate  = rs.getTimestamp("start_date").toLocalDateTime(),
-                                endDate    = rs.getTimestamp("end_date").toLocalDateTime(),
+                                endDate    = rs.getTimestamp("end_date")?.toLocalDateTime(),
                                 status     = RentalStatus.ACTIVE
                             )
                         }
@@ -138,7 +138,7 @@ class RentalRepository(private val db: DatabaseManager) {
         try {
             db.getConnection().use { conn ->
                 conn.prepareStatement(
-                    "UPDATE bb_rentals SET status = 'terminated' WHERE id = ?"
+                    "UPDATE bb_rentals SET status = 'terminated', end_date = NOW() WHERE id = ?"
                 ).use { ps ->
                     ps.setInt(1, id)
                     return ps.executeUpdate() > 0

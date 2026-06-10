@@ -113,7 +113,7 @@ class ParcelRepository(private val db: DatabaseManager) {
         try {   
             db.getConnection().use { conn ->
                 conn.prepareStatement("""
-                    SELECT bb_parcels.label, bb_parcels.region_id, bb_parcels.world,
+                    SELECT bb_parcels.id, bb_parcels.label, bb_parcels.region_id, bb_parcels.world,
                     bb_parcels.status, bb_rentals.tenant_uuid AS owner
                     FROM bb_parcels
                     LEFT JOIN bb_rentals
@@ -126,6 +126,7 @@ class ParcelRepository(private val db: DatabaseManager) {
                     ps.executeQuery().use { rs ->
                         if (!rs.next()) return null
                         return ParcelWithOwner(
+                            id          = rs.getInt("id"),
                             label       = rs.getString("label"),
                             regionId    = rs.getString("region_id"),
                             world       = rs.getString("world"),
@@ -174,9 +175,10 @@ class ParcelRepository(private val db: DatabaseManager) {
         try {   
             db.getConnection().use { conn ->
                 conn.prepareStatement("""
-                    SELECT bb_parcels.label, bb_parcels.region_id, bb_parcels.world,
+                    SELECT bb_parcels.id, bb_parcels.label, bb_parcels.region_id, bb_parcels.world,
                     bb_parcels.status, bb_rentals.tenant_uuid AS owner
                     FROM bb_parcels
+
                     LEFT JOIN bb_rentals
                         ON bb_rentals.parcel_id = bb_parcels.id
                         AND bb_rentals.status = 'active'
@@ -187,6 +189,7 @@ class ParcelRepository(private val db: DatabaseManager) {
                         val result = mutableListOf<ParcelWithOwner>()
                         while (rs.next()) {
                             result += ParcelWithOwner(
+                                id          = rs.getInt("id"),
                                 label       = rs.getString("label"),
                                 regionId    = rs.getString("region_id"),
                                 world       = rs.getString("world"),
@@ -229,6 +232,25 @@ class ParcelRepository(private val db: DatabaseManager) {
         } catch (e: SQLException) {
             Bukkit.getLogger().severe("[BbParcels] findAllOwnerParcels: ${e.message}")
             return emptyList()
+        }
+    }
+    
+    fun findParcelStatusById(parcelId: Int): ParcelStatus? {
+        try {
+            db.getConnection().use { conn ->
+                conn.prepareStatement(
+                    """SELECT status FROM bb_parcels WHERE id = ?"""
+                ).use { ps ->
+                    ps.setInt(1, parcelId)
+                    ps.executeQuery().use { rs ->
+                    if (!rs.next()) return null
+                    return ParcelStatus.entries.first { it.value == rs.getString("status") }
+                    }
+                }
+            }
+        } catch (e: SQLException) {
+            Bukkit.getLogger().severe("[BbParcels] findParcelStatusById: ${e.message}")
+            return null
         }
     }
 
