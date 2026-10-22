@@ -1,64 +1,45 @@
 package com.bbparcels.gui.owner
 
 import com.bbparcels.BbParcels
-import com.bbparcels.model.ParcelStatus
-import com.bbparcels.model.ParcelWithOwner
-import com.bbparcels.repository.RentalMemberRepository
-import com.bbparcels.repository.RentalRepository
+import com.bbparcels.database.repository.ParcelWithOwner
+import com.bbparcels.database.repository.RentalMemberRepository
+import com.bbparcels.gui.BbGui
+import com.bbparcels.gui.utils.Utils
 import com.sk89q.worldedit.bukkit.BukkitAdapter
 import com.sk89q.worldguard.WorldGuard
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.entity.Player
-import org.bukkit.inventory.Inventory
 import org.bukkit.inventory.ItemStack
-import java.util.*
 
-object OwnerMenuGui {
+class OwnerMenuGui private constructor(
+    private val parcel: ParcelWithOwner,
+    private val members: List<String>
+) : BbGui("[BB] Ma parcelle") {
     
-    private val cachedParcel = mutableMapOf<UUID, ParcelWithOwner>()
     
-    private val rentalRepo = RentalRepository(BbParcels.instance.databaseManager)
-    private val rentalMemberRepo = RentalMemberRepository(BbParcels.instance.databaseManager)
-    
-    private val BORDER_SLOTS = (0..8).toList() + (45..53).toList() + listOf(9, 18, 27, 36, 17, 26, 35, 44)
-    
-    private const val SLOT_INFO_PARCEL = 21
-    private const val SLOT_INFO_MEMBERS = 23
-    
-    private const val SLOT_ADD_MEMBER = 39
-    private const val SLOT_MANAGE_MEMBERS = 41
-    
-    fun open(player: Player, parcel: ParcelWithOwner) {
-        cachedParcel[player.uniqueId] = parcel
+    init {
+        Utils.fillBorders(inventory)
+        inventory.setItem(SLOT_INFO_PARCEL, buildInfoParcelItem(parcel))
+        inventory.setItem(SLOT_INFO_MEMBERS, Utils.buildListMembersItem(members))
+        inventory.setItem(SLOT_ADD_MEMBER, Utils.buildNavItem(Material.GREEN_CONCRETE, "§eAjouter un membre"))
+        inventory.setItem(SLOT_MANAGE_MEMBERS, Utils.buildNavItem(Material.ORANGE_CONCRETE, "§eGérer les membres"))
         
-        val inv = Bukkit.createInventory(null, 54, "[BB] Ma parcelle")
-        
-        fillBorders(inv)
-        
-        inv.setItem(SLOT_INFO_PARCEL, buildInfoParcelItem(parcel))
-        inv.setItem(SLOT_INFO_MEMBERS, buildListMembersItem(parcel))
-        inv.setItem(SLOT_ADD_MEMBER, buildNavItem(Material.GREEN_CONCRETE, "§eAjouter un membre"))
-        inv.setItem(SLOT_MANAGE_MEMBERS, buildNavItem(Material.ORANGE_CONCRETE, "§eGérer les membres"))
-        player.openInventory(inv)
     }
-    
-    fun handleClick(player: Player, slot: Int) {
-        val parcel = cachedParcel[player.uniqueId] ?: return
+
+    override fun onClick(player: Player, slot: Int, item: ItemStack) {
         when (slot) {
             SLOT_ADD_MEMBER -> {
-                val radius = 20.0
-                val nearby = player.getNearbyEntities(radius, radius, radius)
+                val candidates = player.getNearbyEntities(RADIUS, RADIUS, RADIUS)
                     .filterIsInstance<Player>()
-                ListAddMemberGui.open(player, nearby, parcel)
+                    .map {it.uniqueId.toString()}
+                    .filter { it !in members}
+                ListAddMemberGui(parcel, candidates, 0).open(player)
             }
-            SLOT_MANAGE_MEMBERS -> {
-                val membersUuids = rentalMemberRepo.findMembers(parcel.label)
-                val members = membersUuids.mapNotNull {Bukkit.getPlayer(UUID.fromString(it))}
-                ListManageMemberGui.open(player, members, parcel)
-            }
+            SLOT_MANAGE_MEMBERS -> ListManageMemberGui(parcel, members, 0).open(player)
         }
     }
+
     
     private fun buildInfoParcelItem(parcel: ParcelWithOwner): ItemStack {
         val material = Material.PAPER
@@ -68,9 +49,13 @@ object OwnerMenuGui {
         meta.setDisplayName("§fParcelle §a${parcel.label}§f :")
         
         meta.lore = buildList {
-            val ownerName = Bukkit.getOfflinePlayer(UUID.fromString(parcel.ownerUuid)).name ?: parcel.ownerUuid
-            add("§7Locataire : §e${ownerName}")
-                       
+            if (parcel.ownerUuid != null) {
+                val ownerName = Utils.playerName(parcel.ownerUuid)
+                add("§7Locataire : §e${ownerName}")
+            } else {
+                add("§7Locataire : §ePas de locataire")
+            }
+            
             val world = Bukkit.getWorld(parcel.world)
             if (world != null) {
                 add("§7Monde : §e${world.name}")
@@ -88,51 +73,25 @@ object OwnerMenuGui {
         return item
     }
     
-    private fun buildListMembersItem(parcel: ParcelWithOwner): ItemStack {
-        val material = Material.PAPER
-        val item = ItemStack(material)
-        val meta = item.itemMeta!!
+    companion object {
         
-        meta.setDisplayName("§fMembres :")
-        meta.lore = buildList {
-            val rental = rentalRepo.findActiveByParcelId(parcel.id)
-            if (rental != null) {
-                val listMembers = rentalMemberRepo.findMembersByRentalId(rental.id)
-                if (listMembers.isNotEmpty()){
-                    listMembers.forEach { memberUuid ->
-                    add("§7     ${Bukkit.getOfflinePlayer(UUID.fromString(memberUuid)).name}")
-                    }
-                }
-            }
-        }
+        private const val SLOT_INFO_PARCEL = 21
+        private const val SLOT_INFO_MEMBERS = 23
+        private const val SLOT_ADD_MEMBER = 39
+        private const val SLOT_MANAGE_MEMBERS = 41
+        private const val RADIUS = 20.0
         
-        item.itemMeta = meta
-        return item
-    }
-    
-    private fun buildNavItem(material: Material, name: String): ItemStack {
-        val item = ItemStack(material)
-        val meta = item.itemMeta!!
-        meta.setDisplayName(name)
-        item.itemMeta = meta
-        return item
-    }
-    
-    private fun fillBorders(inv: Inventory) {    
-        for (slot in BORDER_SLOTS) {
-            val material = if (slot % 2 == 0 ) Material.BLUE_STAINED_GLASS_PANE else Material.CYAN_STAINED_GLASS_PANE
-            val item = ItemStack(material)
-            val meta = item.itemMeta!!
-            meta.setDisplayName("§r")
-            item.itemMeta = meta
-            inv.setItem(slot, item)
+        private val rentalMemberRepo by lazy {RentalMemberRepository(BbParcels.instance.databaseManager)} 
+        
+        fun open(player: Player, parcel: ParcelWithOwner) {
+            val plugin = BbParcels.instance
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
+                val members = rentalMemberRepo.findMembers(parcel.id)
+                Bukkit.getScheduler().runTask(plugin, Runnable {
+                    if (!player.isOnline) return@Runnable
+                    OwnerMenuGui(parcel, members).open(player)
+                })
+            })
         }
     }
-    
-    private fun statusLabel(status: ParcelStatus) = when (status) {
-        ParcelStatus.AVAILABLE -> "§aDisponible"
-        ParcelStatus.RENTED    -> "§cLouée"
-        ParcelStatus.DISABLED  -> "§7Désactivée"
-    }
-    
 }

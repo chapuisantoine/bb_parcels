@@ -1,15 +1,16 @@
 -- Parcelles liées à une région WorldGuard.
 CREATE TABLE IF NOT EXISTS bb_parcels (
     id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    server_id   VARCHAR(32)  NOT NULL,
     region_id   VARCHAR(128) NOT NULL,
     world       VARCHAR(64)  NOT NULL,
     label       VARCHAR(64)  NOT NULL,
     description TEXT         DEFAULT NULL,
     status      ENUM('available','rented','disabled') NOT NULL DEFAULT 'available',
-    active      BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at  DATETIME     NOT NULL DEFAULT NOW(),
     updated_at  DATETIME     NOT NULL DEFAULT NOW() ON UPDATE NOW(),
-    UNIQUE KEY uq_parcel_region (region_id, world)
+    UNIQUE KEY uq_parcel_label (server_id, label),
+    UNIQUE KEY uq_parcel_region (server_id, region_id, world)
 );
 
 -- Locations actives ou terminées.

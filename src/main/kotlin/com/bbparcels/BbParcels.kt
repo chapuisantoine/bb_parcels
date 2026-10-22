@@ -1,17 +1,31 @@
 package com.bbparcels
 
-import com.bbparcels.command.admin.AdminCommand
-import com.bbparcels.command.agent.AgentCommand
-import com.bbparcels.command.owner.OwnerCommand
+import com.bbparcels.cache.MemberCache
+import com.bbparcels.cache.ParcelCache
+import com.bbparcels.command.AdminCommand
+import com.bbparcels.command.AgentCommand
+import com.bbparcels.command.OwnerCommand
 import com.bbparcels.config.PluginConfig
 import com.bbparcels.database.DatabaseManager
-import com.bbparcels.gui.agent.AgentGuiListener
+import com.bbparcels.database.repository.ParcelRepository
+import com.bbparcels.database.repository.RentalMemberRepository
+import com.bbparcels.gui.GuiListener
+import com.bbparcels.gui.agent.AgentTabletListener
 import com.bbparcels.gui.owner.OwnerGuiListener
 import org.bukkit.plugin.java.JavaPlugin
 
 class BbParcels : JavaPlugin() {
 
     lateinit var databaseManager: DatabaseManager
+        private set
+    
+    lateinit var pluginConfig: PluginConfig
+        private set
+        
+    lateinit var parcelCache: ParcelCache
+        private set
+
+    lateinit var memberCache: MemberCache
         private set
 
     companion object {
@@ -22,34 +36,42 @@ class BbParcels : JavaPlugin() {
     override fun onEnable() {
         instance = this
         saveDefaultConfig()
-
+        
+        pluginConfig = PluginConfig(config)
+        
         databaseManager = DatabaseManager(this)
         databaseManager.connect()
         
-        val pluginConfig = PluginConfig(config)
+        
+        parcelCache = ParcelCache(ParcelRepository(databaseManager))
+        parcelCache.load()
+        
+        memberCache = MemberCache(RentalMemberRepository(databaseManager))
+        memberCache.load()
+        
+        server.pluginManager.registerEvents(AgentTabletListener(), this)
+        server.pluginManager.registerEvents(OwnerGuiListener(), this)
+        server.pluginManager.registerEvents(GuiListener(this), this)
         
         getCommand("parceladmin")?.let { cmd ->
-            val handler = AdminCommand(this)
+            val handler = AdminCommand(this, parcelCache, memberCache)
             cmd.setExecutor(handler)
             cmd.tabCompleter = handler
         }
         
         
         getCommand("parcelagent")?.let { cmd ->
-            val handler = AgentCommand(this, pluginConfig)
+            val handler = AgentCommand(this, pluginConfig, parcelCache, memberCache)
             cmd.setExecutor(handler)
             cmd.tabCompleter = handler
         }
         
         getCommand("myparcel")?.let { cmd ->
-            val handler = OwnerCommand(this)
+            val handler = OwnerCommand(this, parcelCache, memberCache)
             cmd.setExecutor(handler)
             cmd.tabCompleter = handler
         }
         
-        server.pluginManager.registerEvents(AgentGuiListener(), this)
-        server.pluginManager.registerEvents(OwnerGuiListener(), this)
-
         logger.info("BbParcels plugin enabled!")
     }
 

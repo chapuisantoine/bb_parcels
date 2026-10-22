@@ -1,74 +1,51 @@
 package com.bbparcels.gui.agent
 
 import com.bbparcels.BbParcels
-import com.bbparcels.model.ParcelStatus
-import com.bbparcels.model.ParcelWithOwner
-import com.bbparcels.repository.ParcelRepository
+import com.bbparcels.database.repository.ParcelRepository
+import com.bbparcels.database.repository.ParcelStatus
+import com.bbparcels.database.repository.ParcelWithOwner
+import com.bbparcels.gui.BbGui
+import com.bbparcels.gui.utils.Utils
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.entity.Player
-import org.bukkit.inventory.Inventory
 import org.bukkit.inventory.ItemStack
-import java.util.*
 
-object AgentMenuGui {
     
-    private val parcelRepo = ParcelRepository(BbParcels.instance.databaseManager)
+class AgentMenuGui private constructor(
+    private val parcels: List<ParcelWithOwner>,
+    private val page: Int
+) : BbGui("[BB] Parcelles"){
+
+    override val permission = "bbparcels.agentImmo"
     
-    private val playerPages = mutableMapOf<UUID, Int>()
+    private val totalPages = ((parcels.size - 1) / CONTENT_SLOTS.size).coerceAtLeast(0)
     
-    private val BORDER_SLOTS = (0..8).toList() + (45..53).toList() + listOf(9, 18, 27, 36, 17, 26, 35, 44)
-    private val CONTENT_SLOTS = (10..16).toList() + (19..25).toList()
-    private const val SLOT_PREV = 39
-    private const val SLOT_NEXT = 41
-    
-    //gestion globale de l'inventaire de l'app Immo
-    fun open(player: Player, page: Int = 0) {
-        val parcels = parcelRepo.findAllWithOwners()
-        val totalPages = ((parcels.size - 1) / CONTENT_SLOTS.size).coerceAtLeast(0)
-        val currentPage = page.coerceIn(0, totalPages)
-        playerPages[player.uniqueId] = currentPage
-        
-        val inv = Bukkit.createInventory(null, 54, "[BB] Parcelles")
-        
-        fillBorders(inv)
-        
-        parcels
-            .drop(currentPage * CONTENT_SLOTS.size)
+    init {
+        Utils.fillBorders(inventory)
+        parcels.drop(page * CONTENT_SLOTS.size)
             .take(CONTENT_SLOTS.size)
-            .forEachIndexed { index, parcel ->
-                inv.setItem(CONTENT_SLOTS[index], buildParcelItem(parcel)) 
-        }
-        
-        if (currentPage > 0)
-            inv.setItem(SLOT_PREV, buildNavItem(Material.ARROW, "§ePage précédente"))
-        if (currentPage < totalPages)
-            inv.setItem(SLOT_NEXT, buildNavItem(Material.ARROW, "§ePage suivante"))
-        
-        player.openInventory(inv)
+            .forEachIndexed { i, parcel -> inventory.setItem(CONTENT_SLOTS[i], buildParcelItem(parcel)) }
+            if (page > 0) inventory.setItem(SLOT_PREV, Utils.buildNavItem(Material.ARROW ,"§ePage précédente"))
+            if (page < totalPages) inventory.setItem(SLOT_NEXT, Utils.buildNavItem(Material.ARROW, "§ePage suivante"))
     }
-    
-    // gestion des interactions au click sur les items de l'inventaire
-    fun handleClick(player: Player, slot: Int) {
-        val page = playerPages[player.uniqueId] ?: 0
+
+    override fun onClick(player: Player, slot: Int, item: ItemStack) {
         when (slot) {
-            SLOT_PREV -> open(player, page - 1)
-            SLOT_NEXT -> open(player, page + 1)
+            SLOT_PREV -> AgentMenuGui(parcels, page - 1).open(player)
+            SLOT_NEXT -> AgentMenuGui(parcels, page + 1).open(player)
             in CONTENT_SLOTS -> {
-                val parcels = parcelRepo.findAllWithOwners()
-                val index = page * CONTENT_SLOTS.size + CONTENT_SLOTS.indexOf(slot)
-                val parcel = parcels.getOrNull(index) ?: return
+                val parcel = parcels.getOrNull(page * CONTENT_SLOTS.size + CONTENT_SLOTS.indexOf(slot)) ?: return
                 ParcelDetailGui.open(player, parcel)
             }
         }
     }
     
-    // définition de l'item "application" de l'agent Immo
     private fun buildParcelItem(parcel: ParcelWithOwner): ItemStack {
-        val material = when(parcel.status.name) {
-            "AVAILABLE" -> Material.LIME_CONCRETE
-            "RENTED" -> Material.RED_CONCRETE
-            else -> Material.GRAY_CONCRETE
+        val material = when(parcel.status) {
+            ParcelStatus.AVAILABLE -> Material.LIME_CONCRETE
+            ParcelStatus.RENTED -> Material.RED_CONCRETE
+            ParcelStatus.DISABLED -> Material.GRAY_CONCRETE
         }
         
         val item = ItemStack(material)
@@ -77,9 +54,9 @@ object AgentMenuGui {
         meta.setDisplayName("§f${parcel.label}")
         
         meta.lore = buildList { 
-            add("§7Statut : §e${statusLabel(parcel.status)}")
+            add("§7Statut : §e${Utils.statusLabel(parcel.status)}")
             if (parcel.ownerUuid != null) {
-                val ownerName = Bukkit.getOfflinePlayer(UUID.fromString(parcel.ownerUuid)).name ?: parcel.ownerUuid
+                val ownerName = Utils.playerName(parcel.ownerUuid)
                 add("§7Locataire : §a$ownerName")
             }
             
@@ -90,31 +67,23 @@ object AgentMenuGui {
         return item
     }
     
-    // définition de l'item de pagination
-    private fun buildNavItem(material: Material, name: String): ItemStack {
-        val item = ItemStack(material)
-        val meta = item.itemMeta!!
-        meta.setDisplayName(name)
-        item.itemMeta = meta
-        return item
+    companion object {
+        private val CONTENT_SLOTS = (10..16).toList() + (19..25).toList()
+        private const val SLOT_PREV = 39
+        private const val SLOT_NEXT = 41
+        private val parcelRepo by lazy  {ParcelRepository(BbParcels.instance.databaseManager)}
+        
+        fun open(player: Player, page: Int = 0) {
+            val plugin = BbParcels.instance
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
+                val parcels = parcelRepo.findAllWithOwners()
+            
+                Bukkit.getScheduler().runTask(plugin, Runnable {
+                    if (!player.isOnline) return@Runnable
+                    val total = ((parcels.size -1) / CONTENT_SLOTS.size).coerceAtLeast(0)
+                    AgentMenuGui(parcels, page.coerceIn(0, total)).open(player)
+            })
+        })
     }
-    
-    //contour de l'inventaire en Verre Bleu et Cyan
-    private fun fillBorders(inv: Inventory) {    
-        for (slot in BORDER_SLOTS) {
-            val material = if (slot % 2 == 0 ) Material.BLUE_STAINED_GLASS_PANE else Material.CYAN_STAINED_GLASS_PANE
-            val item = ItemStack(material)
-            val meta = item.itemMeta!!
-            meta.setDisplayName("§r")
-            item.itemMeta = meta
-            inv.setItem(slot, item)
-        }
-    }
-    
-    //traduction des status
-    private fun statusLabel(status: ParcelStatus) = when (status) {
-        ParcelStatus.AVAILABLE -> "§aDisponible"
-        ParcelStatus.RENTED    -> "§cLouée"
-        ParcelStatus.DISABLED  -> "§7Désactivée"
     }
 }

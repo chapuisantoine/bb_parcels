@@ -9,11 +9,12 @@ authors:
 depend:
   - WorldGuard
   - WorldEdit
+  - bb_identity
 
 commands:
   parceladmin:
     description: Commandes administration des parcelles
-    usage: /parceladmin <add|find|delete|givetablet|givekey>
+    usage: /parceladmin <add|find|delete|givetablet|givekey|refreshcache>
     permission: bbparcels.admin
 
   parcelagent:
@@ -23,7 +24,7 @@ commands:
 
   myparcel:
     description: Gerer ma parcelle
-    usage: /myparcel <parcelLabel> <add|list|remove> <playerName>
+    usage: /myparcel <label> <add|list|remove> <playerName>
 
 permissions:
   bbparcels.admin:

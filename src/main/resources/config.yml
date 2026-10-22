@@ -1,8 +1,11 @@
+server-id: "monde_1"
+
+
 database:
   host: localhost
-  port: 3307
-  name: bb_parcels
-  username: bb_user
-  password: bb_password
+  port: 3306
+  name: rp_db
+  username: rp_user
+  password: changeme
   pool-size: 10
 

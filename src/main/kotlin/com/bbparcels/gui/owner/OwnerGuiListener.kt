@@ -1,45 +1,31 @@
 package com.bbparcels.gui.owner
 
 import com.bbparcels.BbParcels
-import com.bbparcels.model.ParcelStatus
-import com.bbparcels.model.ParcelWithOwner
-import com.bbparcels.repository.ParcelRepository
+import com.bbparcels.database.repository.ParcelRepository
+import com.bbparcels.database.repository.ParcelStatus
+import com.bbparcels.database.repository.ParcelWithOwner
+import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
-import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
-import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
 
 class OwnerGuiListener : Listener {
     
+    private val plugin = BbParcels.instance
+    
     private val parcelRepo = ParcelRepository(BbParcels.instance.databaseManager)
     
     @EventHandler
-    fun onInventoryClick(event: InventoryClickEvent) {
-        val title = event.view.title
-        if (!title.startsWith("[BB]")) return
-        event.isCancelled = true
-        
-        val player = event.whoClicked as? Player ?: return
-        if (event.currentItem == null) return
-        
-        when (title) {
-            "[BB] Ma parcelle" -> OwnerMenuGui.handleClick(player, event.rawSlot)
-            "[BB] Liste des membres" -> ListMembersGui.handleClick(player, event.rawSlot)
-            "[BB] Ajout de membres" -> ListAddMemberGui.handleClick(player, event.rawSlot)
-            "[BB] Gestion des membres" -> ListManageMemberGui.handleClick(player, event.rawSlot)
-        }
-        
-    }
-    
-    @EventHandler
     fun onPlayerInteract(event: PlayerInteractEvent) {
-        val player = event.player        
+        val player = event.player      
+          
+        if (event.hand != EquipmentSlot.HAND) return
         val action = event.action
         if (action != Action.RIGHT_CLICK_AIR && action != Action.RIGHT_CLICK_BLOCK) return
         
@@ -47,13 +33,17 @@ class OwnerGuiListener : Listener {
         val label = getParcelLabel(item) ?: return
         
         event.isCancelled = true
-        
-        val parcel = parcelRepo.findAllWithOwners().firstOrNull { it.label == label } ?: return
-        
-        if (parcel.status != ParcelStatus.RENTED) return
-        if (parcel.ownerUuid != player.uniqueId.toString()) return
-        
-        OwnerMenuGui.open(player, parcel =parcel)        
+
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
+            val parcel = parcelRepo.findByLabelWithOwner(label)
+            
+            Bukkit.getScheduler().runTask(plugin, Runnable {
+                if (parcel != null && parcel.status == ParcelStatus.RENTED && parcel.ownerUuid == player.uniqueId.toString())
+                    OwnerMenuGui.open(player, parcel)
+                else
+                    player.sendMessage("§cCette clé n'est pas valide.")
+            })
+        })
     }
     
     companion object {
