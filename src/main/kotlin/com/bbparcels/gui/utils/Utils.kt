@@ -1,6 +1,7 @@
 package com.bbparcels.gui.utils
 
 import com.bbparcels.database.repository.ParcelStatus
+import com.bbparcels.database.repository.ProfileInfo
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.inventory.Inventory
@@ -10,7 +11,11 @@ import java.util.*
 
 object Utils {
 
-    private val BORDER_SLOTS = (0..8).toList() + (45..53).toList() + listOf(9, 18, 27, 36, 17, 26, 35, 44)
+    private val BORDER_SLOTS = buildList {
+        addAll((0..8).toList())
+        addAll((45..53).toList())
+        addAll(listOf(9, 18, 27, 36, 17, 26, 35, 44))
+    }
     
     fun buildNavItem(material: Material, name: String): ItemStack {
         val item = ItemStack(material)
@@ -31,22 +36,22 @@ object Utils {
         }
     }
     
-    fun buildHeadItemWithLore(uuid: String, isOwner: Boolean): ItemStack {
+    fun buildHeadItemWithLore(profile: ProfileInfo, isOwner: Boolean): ItemStack {
         val item    = ItemStack(Material.PLAYER_HEAD)
         val meta    = item.itemMeta as SkullMeta
-        meta.owningPlayer = Bukkit.getOfflinePlayer(UUID.fromString(uuid))
-        meta.setDisplayName("§e${playerName(uuid)}")
+        meta.owningPlayer = Bukkit.getOfflinePlayer(profile.accountId)
+        meta.setDisplayName("§e${profile.displayName}")
         if (!isOwner)
             meta.lore = listOf("§eCliquer pour enlever")
         item.itemMeta = meta
         return item
     }
     
-    fun buildHeadItem(uuid: String): ItemStack {
+    fun buildHeadItem(profile: ProfileInfo): ItemStack {
         val item    = ItemStack(Material.PLAYER_HEAD)
         val meta    = item.itemMeta as SkullMeta
-        meta.owningPlayer = Bukkit.getOfflinePlayer(UUID.fromString(uuid))
-        meta.setDisplayName("§e${playerName(uuid)}")
+        meta.owningPlayer = Bukkit.getOfflinePlayer(profile.accountId)
+        meta.setDisplayName("§e${profile.displayName}")
         item.itemMeta = meta
         return item
     }
@@ -57,17 +62,14 @@ object Utils {
         ParcelStatus.DISABLED  -> "§7Désactivée"
     }
     
-    fun buildListMembersItem(memberUuids: List<String>): ItemStack {
+    fun buildListMembersItem(members: List<ProfileInfo>): ItemStack {
         val item = ItemStack(Material.PAPER)
         val meta = item.itemMeta!!
         meta.setDisplayName("§fMembres :")
-        meta.lore = if (memberUuids.isEmpty())
+        meta.lore = if (members.isEmpty())
             listOf("§7     Aucun membre")
         else
-            memberUuids.map { uuid ->
-                val name = playerName(uuid)
-                "§7     $name"
-            }
+            members.map { member -> "§7     ${member.displayName}"}
         item.itemMeta = meta
         return item
     }

@@ -4,6 +4,7 @@ import com.bbparcels.BbParcels
 import com.bbparcels.database.repository.ParcelRepository
 import com.bbparcels.database.repository.ParcelStatus
 import com.bbparcels.database.repository.ParcelWithOwner
+import com.bbparcels.database.repository.ProfileRepository
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
@@ -20,6 +21,7 @@ class OwnerGuiListener : Listener {
     private val plugin = BbParcels.instance
     
     private val parcelRepo = ParcelRepository(BbParcels.instance.databaseManager)
+    private val profileRepo = ProfileRepository(BbParcels.instance.databaseManager)
     
     @EventHandler
     fun onPlayerInteract(event: PlayerInteractEvent) {
@@ -36,12 +38,13 @@ class OwnerGuiListener : Listener {
 
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
             val parcel = parcelRepo.findByLabelWithOwner(label)
+            val activeProfile = profileRepo.findActiveProfile(player.uniqueId.toString())
             
             Bukkit.getScheduler().runTask(plugin, Runnable {
-                if (parcel != null && parcel.status == ParcelStatus.RENTED && parcel.ownerUuid == player.uniqueId.toString())
-                    OwnerMenuGui.open(player, parcel)
-                else
-                    player.sendMessage("§cCette clé n'est pas valide.")
+                val isTenant = parcel != null && parcel.status == ParcelStatus.RENTED &&
+                    activeProfile != null && parcel.tenantProfile?.id == activeProfile.id
+                if (isTenant) OwnerMenuGui.open(player, parcel)
+                else player.sendMessage("§cCette clé n'est pas valide.")
             })
         })
     }

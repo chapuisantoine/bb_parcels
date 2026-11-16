@@ -2,6 +2,7 @@ package com.bbparcels.gui.owner
 
 import com.bbparcels.BbParcels
 import com.bbparcels.database.repository.ParcelWithOwner
+import com.bbparcels.database.repository.ProfileInfo
 import com.bbparcels.database.repository.RentalMemberRepository
 import com.bbparcels.gui.BbGui
 import com.bbparcels.gui.utils.Utils
@@ -14,7 +15,7 @@ import org.bukkit.inventory.ItemStack
 
 class OwnerMenuGui private constructor(
     private val parcel: ParcelWithOwner,
-    private val members: List<String>
+    private val members: List<ProfileInfo>
 ) : BbGui("[BB] Ma parcelle") {
     
     
@@ -29,13 +30,7 @@ class OwnerMenuGui private constructor(
 
     override fun onClick(player: Player, slot: Int, item: ItemStack) {
         when (slot) {
-            SLOT_ADD_MEMBER -> {
-                val candidates = player.getNearbyEntities(RADIUS, RADIUS, RADIUS)
-                    .filterIsInstance<Player>()
-                    .map {it.uniqueId.toString()}
-                    .filter { it !in members}
-                ListAddMemberGui(parcel, candidates, 0).open(player)
-            }
+            SLOT_ADD_MEMBER -> ListAddMemberGui.open(player, parcel)
             SLOT_MANAGE_MEMBERS -> ListManageMemberGui(parcel, members, 0).open(player)
         }
     }
@@ -49,13 +44,10 @@ class OwnerMenuGui private constructor(
         meta.setDisplayName("§fParcelle §a${parcel.label}§f :")
         
         meta.lore = buildList {
-            if (parcel.ownerUuid != null) {
-                val ownerName = Utils.playerName(parcel.ownerUuid)
-                add("§7Locataire : §e${ownerName}")
-            } else {
+            if (parcel.tenantProfile != null)
+                add("§7Locataire : §e${parcel.tenantProfile.displayName}")
+            else
                 add("§7Locataire : §ePas de locataire")
-            }
-            
             val world = Bukkit.getWorld(parcel.world)
             if (world != null) {
                 add("§7Monde : §e${world.name}")
@@ -66,7 +58,7 @@ class OwnerMenuGui private constructor(
                 if (region != null)
                     add("§7Région : §e${region.id}")
             }
-            add("§7Prix de la location : XXXX") //TODO a faire quand il y aura la gestion des prix    
+            add("§7Prix de la location : ${parcel.weeklyPrice}")   
         }
         
         item.itemMeta = meta
@@ -79,7 +71,6 @@ class OwnerMenuGui private constructor(
         private const val SLOT_INFO_MEMBERS = 23
         private const val SLOT_ADD_MEMBER = 39
         private const val SLOT_MANAGE_MEMBERS = 41
-        private const val RADIUS = 20.0
         
         private val rentalMemberRepo by lazy {RentalMemberRepository(BbParcels.instance.databaseManager)} 
         

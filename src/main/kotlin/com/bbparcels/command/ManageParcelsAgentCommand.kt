@@ -1,16 +1,17 @@
 package com.bbparcels.command
 
 import com.bbparcels.BbParcels
+import com.bbparcels.cache.ActiveProfileCache
 import com.bbparcels.cache.MemberCache
 import com.bbparcels.cache.ParcelCache
 import com.bbparcels.database.repository.*
+import com.bbparcels.gui.owner.OwnerGuiListener
 import com.sk89q.worldedit.bukkit.BukkitAdapter
 import com.sk89q.worldguard.WorldGuard
 import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import java.time.LocalDateTime
-import java.util.*
 
 class InfoParcelCommand(
     private val plugin: BbParcels,
@@ -18,6 +19,7 @@ class InfoParcelCommand(
     ) : SubCommand {
     
     private val parcelRepo = ParcelRepository(plugin.databaseManager)
+    private val profileRepo = ProfileRepository(plugin.databaseManager)
     
     override fun execute(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
@@ -39,14 +41,8 @@ class InfoParcelCommand(
             Bukkit.getScheduler().runTask(plugin, Runnable {
                 val message = when {
                     parcel == null -> "§cCette parcelle n'existe pas ou n'a pas été trouvé."
-                    else -> {
-                        val ownerId = parcel.ownerUuid
-                        val playerName = if (ownerId != null)
-                            Bukkit.getOfflinePlayer(UUID.fromString(ownerId)).name
-                        else
-                            "Aucun"
-                        "§aParcel : §e$label §a| regionId : §e${parcel.regionId} §a| world : §e${parcel.world} §a| Status : §e${parcel.status} §a| Owner §e${playerName}"
-                    }
+                    else -> "§aParcel : §e$label §a| regionId : §e${parcel.regionId} §a| Monde : §e${parcel.world}" + 
+                            "§a| Status : §e${parcel.status} §a| Owner §e${parcel.tenantProfile?.displayName ?: "aucun"}"
                 }
                 sender.sendMessage(message)
             })
@@ -65,6 +61,7 @@ class InfoParcelCommand(
 class ListParcelCommand(private val plugin: BbParcels) : SubCommand {
     
     private val repo = ParcelRepository(plugin.databaseManager)
+    private val profileRepo = ProfileRepository(plugin.databaseManager)
     
     override fun execute(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
@@ -80,16 +77,12 @@ class ListParcelCommand(private val plugin: BbParcels) : SubCommand {
         
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
             val parcels = repo.findAllWithOwners()
+            
             val lines = when {
                 parcels.isEmpty() -> listOf("§cAucune parcel existante.")
                 else -> listOf("§aListe des parcelles :") +
                     parcels.map {parcel -> 
-                        val ownerId = parcel.ownerUuid
-                        val playerName = if (ownerId != null)
-                            Bukkit.getOfflinePlayer(UUID.fromString(ownerId)).name
-                        else
-                            "inconnu"
-                        "§aParcel : §e${parcel.label} §a| Status : §e${parcel.status} §a| Owner : §e$playerName"
+                        "§aParcel : §e${parcel.label} §a| Status : §e${parcel.status} §a| Owner : §e${parcel.tenantProfile?.displayName ?: "aucun"}"
                     }
             }
             Bukkit.getScheduler().runTask(plugin, Runnable {
@@ -104,11 +97,13 @@ class ListParcelCommand(private val plugin: BbParcels) : SubCommand {
 class RentParcelCommand (
     private val plugin: BbParcels,
     private val parcelCache: ParcelCache,
-    private val memberCache: MemberCache
+    private val memberCache: MemberCache,
+    private val activeProfileCache: ActiveProfileCache
     ) : SubCommand {
 
     private val parcelRepo = ParcelRepository(db = plugin.databaseManager)
     private val rentalRepo = RentalRepository(db = plugin.databaseManager)
+    private val profileRepo = ProfileRepository(db = plugin.databaseManager)
     
     override fun execute(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
@@ -117,53 +112,62 @@ class RentParcelCommand (
         }
         
         if (args.size < 2) {
-            sender.sendMessage("§cUsage : /parcelagent rent <label> <playerName> [description...]")
+            sender.sendMessage("§cUsage : /parcelagent rent <label> <profileId>")
             return true
         }
         
         val label = args[0]
-        val playerName = args[1]
-        val startDate = LocalDateTime.now()
-        
-        val player = Bukkit.getPlayer(playerName)
-        if (player == null) {
-            sender.sendMessage("§c Le joueur §e$playerName §cn'est pas connecté.")
+        val profileId = args[1].toIntOrNull() ?: run {
+            sender.sendMessage("§cUsage : /parcelagent rent <label> <profileId>")
             return true
         }
+        val startDate = LocalDateTime.now()
         
-        val tenantUuid = player.uniqueId
+        val onlineAccounts = Bukkit.getOnlinePlayers().map { it.uniqueId.toString() }.toSet()
         
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
-            val parcel = parcelRepo.findByLabel(label)
-            val rentalId = if (parcel != null && parcel.status == ParcelStatus.AVAILABLE) {
+            val profile = profileRepo.findById(profileId)
+            val isPlayed = profile != null && profile.accountUuid in onlineAccounts &&
+                profileRepo.findActiveProfile(profile.accountUuid)?.id == profile.id
+            val parcel = parcelRepo.findByLabelWithOwner(label)
+            
+            val rentalId = if (profile != null && isPlayed && parcel != null && parcel.status == ParcelStatus.AVAILABLE) {
                 rentalRepo.rentWithMember(
-                    Rental(parcelId = parcel.id, tenantUuid = tenantUuid.toString(), startDate = startDate),
-                    RentalMember(rentalId = 0, memberUuid = tenantUuid.toString(), role = RentalMemberRole.OWNER)
+                    Rental(parcelId = parcel.id, tenantProfileId = profile.id, startDate = startDate),
+                    RentalMember(rentalId = 0, memberProfileId = profile.id, role = RentalMemberRole.OWNER)
                 )
             } else 0
                        
-            Bukkit.getScheduler().runTask(plugin, Runnable {
+            Bukkit.getScheduler().runTask(plugin, Runnable {           
                 val message = when {
-                    parcel == null -> "§c La parcelle §e$label §cn'existe pas."
+                    profile == null -> "§cCette personne n'existe pas."
+                    !isPlayed -> "§c Le joueur §e${profile.displayName} §cn'est pas connecté."
+                    parcel == null -> "§cLa parcelle §e$label §cn'existe pas."
                     rentalId == 0 -> "§cLa parcelle §e$label §cn'est pas disponible."
                     rentalId < 0 -> "§cErreur lors de la location."
                     else -> {
-                        parcelCache.onParcelRented(label, tenantUuid.toString())
-                        memberCache.onMemberAdded(label, tenantUuid.toString())     
+                        parcelCache.onParcelRented(label, profile.id)
+                        memberCache.onMemberAdded(label, profile)
+                        
                         val regionOk = Bukkit.getWorld(parcel.world)?.let {world ->
                             WorldGuard.getInstance().platform.regionContainer
                             .get(BukkitAdapter.adapt(world))
                             ?.getRegion(parcel.regionId)
-                            ?.members?.addPlayer(tenantUuid)
+                            ?.members?.addPlayer(profile.accountId)
                         } != null
-                        Bukkit.getPlayer(tenantUuid)
+                        
+                        Bukkit.getPlayer(profile.accountId)
                             ?.sendMessage("§aVous êtes maintenant locataire de la parcelle §e$label §a!")
-                        if (regionOk)
-                            "§a✔ §e${player.name} §aest maintenant locataire de la parcelle §e$label §a!"
-                        else
+                        
+                        sender.inventory.addItem(OwnerGuiListener.createParcelKey(parcel))
+                            .values.forEach { sender.world.dropItemNaturally(sender.location, it) }
+                        if (regionOk) {
+                            "§a✔ §e${profile.displayName} §aest maintenant locataire de la parcelle §e$label §a!"
+                        }
+                        else {
                             "§6⚠ Location enregistrée, mais la région WorldGuard §e${parcel.regionId} §6est introuvable."
+                        }
                     }
-                    
                 }
                 sender.sendMessage(message)
             })
@@ -176,8 +180,9 @@ class RentParcelCommand (
         return when (args.size) {
             1 -> parcelCache.parcelsLabelsOfStatus(ParcelStatus.AVAILABLE, args[0])                    
             2 -> Bukkit.getOnlinePlayers()
-                    .map { it.name }
-                    .filter { it.startsWith(args[1], ignoreCase = true) }
+                    .mapNotNull { activeProfileCache.get(it.uniqueId) }
+                    .map { it.id.toString() }
+                    .filter { it.startsWith(args[1]) }
             else -> emptyList()
         }
     }
@@ -218,7 +223,6 @@ class UnrentParcelCommand(
             
             Bukkit.getScheduler().runTask(plugin, Runnable {
                 if (parcel != null && removedMembers != null) {
-                    val uuids = removedMembers.map {UUID.fromString(it)}
                     memberCache.onRentalEnded(label)
                     parcelCache.onParcelUnrented(label)
                     Bukkit.getWorld(parcel.world)?.let {world ->
@@ -229,10 +233,10 @@ class UnrentParcelCommand(
                             if (region == null)
                                 plugin.logger.warning("Région WorldGuard '${parcel.regionId}' introuvable lors du unrent !")
                             else
-                                uuids.forEach { region.members.removePlayer(it) }
+                                removedMembers.forEach { region.members.removePlayer(it.accountId) }
                         }
-                        uuids.forEach {
-                            Bukkit.getPlayer(it)?.sendMessage("§cLa location de la parcelle §e$label §ca été résiliée.")
+                        removedMembers.forEach {
+                            Bukkit.getPlayer(it.accountId)?.sendMessage("§cLa location de la parcelle §e$label §ca été résiliée.")
                         }
                     }
                     sender.sendMessage(message)

@@ -55,9 +55,8 @@ class AgentMenuGui private constructor(
         
         meta.lore = buildList { 
             add("§7Statut : §e${Utils.statusLabel(parcel.status)}")
-            if (parcel.ownerUuid != null) {
-                val ownerName = Utils.playerName(parcel.ownerUuid)
-                add("§7Locataire : §a$ownerName")
+            if (parcel.tenantProfile != null) {
+                add("§7Locataire : §a${parcel.tenantProfile.displayName}")
             }
             
             add("")

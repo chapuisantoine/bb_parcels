@@ -11,7 +11,6 @@ import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
-import java.util.*
 
 class ConfirmUnrentGui(
     private val parcel: ParcelWithOwner
@@ -21,7 +20,7 @@ class ConfirmUnrentGui(
     
     init {
         Utils.fillBorders(inventory)
-        parcel.ownerUuid?.let {inventory.setItem(SLOT_HEAD, Utils.buildHeadItem(it))}
+        parcel.tenantProfile?.let {inventory.setItem(SLOT_HEAD, Utils.buildHeadItem(it))}
         inventory.setItem(SLOT_VALID, Utils.buildNavItem(Material.GREEN_CONCRETE, "Valider"))
         inventory.setItem(SLOT_CANCEL, Utils.buildNavItem(Material.RED_CONCRETE, "Annuler"))
     }
@@ -49,7 +48,6 @@ class ConfirmUnrentGui(
                     removedMembers == null ->
                         player.sendMessage("§cErreur lors de la résiliation (déjà résiliée ?).")
                     else -> {
-                        val uuids = removedMembers.map { UUID.fromString(it) }
                         plugin.memberCache.onRentalEnded(parcel.label)
                         plugin.parcelCache.onParcelUnrented(parcel.label)
                         Bukkit.getWorld(parcel.world)?.let { world ->
@@ -59,14 +57,14 @@ class ConfirmUnrentGui(
                             if (region == null)
                                 plugin.logger.warning("Région WorldGuard '${parcel.regionId}' introuvable lors du unrent !")
                             else
-                                uuids.forEach { region.members.removePlayer(it) }
+                                removedMembers.forEach { region.members.removePlayer(it.accountId) }
                         }
 
-                        uuids.forEach {
-                            Bukkit.getPlayer(it)?.sendMessage("§cLa location de la parcelle §e${parcel.label} §ca été résiliée.")
+                        removedMembers.forEach {
+                            Bukkit.getPlayer(it.accountId)?.sendMessage("§cLa location de la parcelle §e${parcel.label} §ca été résiliée.")
                         }
 
-                        val tenantName = Utils.playerName(rental.tenantUuid)
+                        val tenantName = parcel.tenantProfile?.displayName?: "inconnu"
                         player.sendMessage("§a✔ La location §e${parcel.label} §ade §e$tenantName §aa été résiliée.")
                     }
                 }

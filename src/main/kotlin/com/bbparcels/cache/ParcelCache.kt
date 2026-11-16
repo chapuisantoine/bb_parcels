@@ -2,58 +2,48 @@ package com.bbparcels.cache
 
 import com.bbparcels.database.repository.ParcelRepository
 import com.bbparcels.database.repository.ParcelStatus
+import java.util.concurrent.ConcurrentHashMap
 
 class ParcelCache(
     private val parcelRepo: ParcelRepository
 ) {
     
-    @Volatile
-    private var parcelsByLabel: Map<String, ParcelStatus> = emptyMap()
+    private data class Entry(val status: ParcelStatus, val tenantProfileId: Int?)
     
-    private var parcelsByOwner: Map<String, String> = emptyMap()
+    private val parcels = ConcurrentHashMap<String, Entry>()
     
     fun load() {
-        parcelsByLabel = parcelRepo.findAll().associate { it.label to it.status }
-        
-        parcelsByOwner = parcelRepo.findAllWithOwners()
-            .mapNotNull { p -> p.ownerUuid?.let { p.label to it} }
-            .toMap()
+        val fresh = parcelRepo.findAllWithOwners().associate { it.label to Entry(it.status, it.tenantProfile?.id) }
+        parcels.clear()
+        parcels.putAll(fresh)
     }
     
-    fun parcelLabels(prefix: String): List<String> =
-        parcelsByLabel.keys.filter { it.startsWith(prefix, ignoreCase = true)}
+    fun parcelLabels(prefix: String) = matching(prefix) { true }
+    fun parcelsLabelsOfStatus(status: ParcelStatus, prefix: String) = matching(prefix) { it.status == status }
+    fun parcelsLabelsNotOfStatus(status: ParcelStatus, prefix: String) = matching(prefix) { it.status != status }
+    fun parcelsRentedBy(profileId: Int, prefix: String) = matching(prefix) { it.tenantProfileId == profileId }
+
     
-    fun parcelsLabelsOfStatus(status: ParcelStatus, prefix: String): List<String> =
-        parcelsByLabel.filterValues { it == status }
-            .keys.filter { it.startsWith(prefix, ignoreCase = true) }
-    
-    fun parcelsLabelsNotOfStatus(status: ParcelStatus, prefix: String): List<String> =
-        parcelsByLabel.filterValues { it != status }
-            .keys.filter { it.startsWith(prefix, ignoreCase = true) }
-            
-    fun parcelsByOwner(senderUuid: String, prefix: String): List<String> =
-        parcelsByOwner.filterValues { it == senderUuid }
-            .keys.filter {it.startsWith(prefix, ignoreCase = true)}
-            
-    fun onParcelAdded(label: String) {
-        parcelsByLabel = parcelsByLabel + (label to ParcelStatus.AVAILABLE)
+    private fun matching(prefix: String, filter: (Entry) -> Boolean): List<String> =
+        parcels.filter { (label, entry) -> filter(entry) && label.startsWith(prefix, ignoreCase = true) }
+            .keys.sorted()
+              
+    fun onParcelAdded(label: String) { 
+        parcels[label] = Entry(ParcelStatus.AVAILABLE, null) 
+    }
+    fun onParcelStatusChanged(label: String, status: ParcelStatus) {
+        parcels.computeIfPresent(label) { _, e -> e.copy(status = status)}
     }
     
-    fun onParcelStatusChanged(label: String, newStatus: ParcelStatus) {
-        parcelsByLabel = parcelsByLabel + (label to newStatus)
-    }
-    
-    fun onParcelRented(label: String, ownerUuid: String) {
-        parcelsByOwner = parcelsByOwner + (label to ownerUuid)
-        parcelsByLabel = parcelsByLabel + (label to ParcelStatus.RENTED)
+    fun onParcelRented(label: String, profileId: Int) { 
+        parcels.computeIfPresent(label) {_, _ -> Entry(ParcelStatus.RENTED, profileId)}
     }
     
     fun onParcelUnrented(label: String) {
-        parcelsByOwner = parcelsByOwner - label
-        parcelsByLabel = parcelsByLabel + (label to ParcelStatus.AVAILABLE)
+        parcels.computeIfPresent(label) { _, _ -> Entry(ParcelStatus.AVAILABLE, null)}
     }
     
-    fun onParcelRemoved(label: String) {
-        parcelsByLabel = parcelsByLabel - label
+    fun onParcelRemoved(label: String){ 
+        parcels.remove(label) 
     }
 }

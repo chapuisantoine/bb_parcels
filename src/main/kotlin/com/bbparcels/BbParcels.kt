@@ -1,5 +1,6 @@
 package com.bbparcels
 
+import com.bbparcels.cache.ActiveProfileCache
 import com.bbparcels.cache.MemberCache
 import com.bbparcels.cache.ParcelCache
 import com.bbparcels.command.AdminCommand
@@ -8,6 +9,7 @@ import com.bbparcels.command.OwnerCommand
 import com.bbparcels.config.PluginConfig
 import com.bbparcels.database.DatabaseManager
 import com.bbparcels.database.repository.ParcelRepository
+import com.bbparcels.database.repository.ProfileRepository
 import com.bbparcels.database.repository.RentalMemberRepository
 import com.bbparcels.gui.GuiListener
 import com.bbparcels.gui.agent.AgentTabletListener
@@ -26,6 +28,9 @@ class BbParcels : JavaPlugin() {
         private set
 
     lateinit var memberCache: MemberCache
+        private set
+        
+    lateinit var activeProfileCache: ActiveProfileCache
         private set
 
     companion object {
@@ -48,26 +53,30 @@ class BbParcels : JavaPlugin() {
         
         memberCache = MemberCache(RentalMemberRepository(databaseManager))
         memberCache.load()
+
+        activeProfileCache = ActiveProfileCache(this, ProfileRepository(databaseManager))
+        server.pluginManager.registerEvents(activeProfileCache, this)
+        activeProfileCache.refreshAllOnline()
         
         server.pluginManager.registerEvents(AgentTabletListener(), this)
         server.pluginManager.registerEvents(OwnerGuiListener(), this)
         server.pluginManager.registerEvents(GuiListener(this), this)
         
         getCommand("parceladmin")?.let { cmd ->
-            val handler = AdminCommand(this, parcelCache, memberCache)
+            val handler = AdminCommand(this, parcelCache, memberCache, activeProfileCache)
             cmd.setExecutor(handler)
             cmd.tabCompleter = handler
         }
         
         
         getCommand("parcelagent")?.let { cmd ->
-            val handler = AgentCommand(this, pluginConfig, parcelCache, memberCache)
+            val handler = AgentCommand(this, pluginConfig, parcelCache, memberCache,activeProfileCache)
             cmd.setExecutor(handler)
             cmd.tabCompleter = handler
         }
         
         getCommand("myparcel")?.let { cmd ->
-            val handler = OwnerCommand(this, parcelCache, memberCache)
+            val handler = OwnerCommand(this, parcelCache, activeProfileCache, memberCache)
             cmd.setExecutor(handler)
             cmd.tabCompleter = handler
         }

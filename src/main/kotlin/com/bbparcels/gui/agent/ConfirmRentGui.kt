@@ -15,14 +15,14 @@ import java.time.LocalDateTime
 
 class ConfirmRentGui(
     private val parcel: ParcelWithOwner,
-    private val target: Player
+    private val target: ProfileInfo
 ) : BbGui("[BB] Louer la parcelle ?") {
     
     override val permission = "bbparcels.agentImmo"
             
     init {
         Utils.fillBorders(inventory)
-        inventory.setItem(SLOT_HEAD, Utils.buildHeadItem(target.uniqueId.toString()))
+        inventory.setItem(SLOT_HEAD, Utils.buildHeadItem(target))
         inventory.setItem(SLOT_VALID, Utils.buildNavItem(Material.GREEN_CONCRETE, "Valider"))
         inventory.setItem(SLOT_CANCEL, Utils.buildNavItem(Material.RED_CONCRETE, "Annuler"))
     }
@@ -38,18 +38,25 @@ class ConfirmRentGui(
     }
     
     private fun rentParcel(player: Player) {
-        if (!target.isOnline) {
-            player.sendMessage("§cLe joueur §e${target.name} §cn'est plus connecté.")
+        if (Bukkit.getPlayer(target.accountId) == null) {
+            player.sendMessage("§cLe joueur §e${target.displayName} §cn'est plus connecté.")
             return
         }
 
-        val tenantUuid = target.uniqueId
         val startDate  = LocalDateTime.now()
 
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
+            if (profileRepo.findActiveProfile(target.accountUuid)?.id != target.id) {
+                Bukkit.getScheduler().runTask(plugin, Runnable {
+                    if (!player.isOnline) return@Runnable
+                    player.sendMessage("§c${target.displayName} §cn'est plus le personnage joué par ce joueur.")
+                    ChooseTenantGui.open(player, parcel)
+                })
+                return@Runnable
+            }
             val rentalId = rentalRepo.rentWithMember(
-                Rental(parcelId = parcel.id, tenantUuid = tenantUuid.toString(), startDate = startDate),
-                RentalMember(rentalId = 0, memberUuid = tenantUuid.toString(), role = RentalMemberRole.OWNER)
+                Rental(parcelId = parcel.id, tenantProfileId = target.id, startDate = startDate),
+                RentalMember(rentalId = 0, memberProfileId = target.id, role = RentalMemberRole.OWNER)
             )
 
             Bukkit.getScheduler().runTask(plugin, Runnable {
@@ -61,23 +68,24 @@ class ConfirmRentGui(
                             WorldGuard.getInstance().platform.regionContainer
                                 .get(BukkitAdapter.adapt(world))
                                 ?.getRegion(parcel.regionId)
-                                ?.members?.addPlayer(tenantUuid)
+                                ?.members?.addPlayer(target.accountId)
                         } != null
-                        plugin.parcelCache.onParcelRented(parcel.label, tenantUuid.toString())
-                        plugin.memberCache.onMemberAdded(parcel.label, tenantUuid.toString())
+                        plugin.parcelCache.onParcelRented(parcel.label, target.id)
+                        plugin.memberCache.onMemberAdded(parcel.label, target)
                         
                         if (regionOk) {
-                            player.sendMessage("§a✔ §e${target.name} §aest maintenant locataire de la parcelle §e${parcel.label} §a!")
+                            player.sendMessage("§a✔ §e${target.displayName} §aest maintenant locataire de la parcelle §e${parcel.label} §a!")
                         }
                         else {
                             plugin.logger.warning("Région WorldGuard '${parcel.regionId}' introuvable !")
                             player.sendMessage("§6⚠ Location enregistrée, mais la région WorldGuard §e${parcel.regionId} §6est introuvable.")
                         }
-
-                        if (target.isOnline) {
-                            target.inventory.addItem(OwnerGuiListener.createParcelKey(parcel))
-                                .values.forEach { target.world.dropItemNaturally(target.location, it) }
-                            target.sendMessage("§aVous êtes maintenant locataire de la parcelle §e${parcel.label}§a. Vous avez reçu sa clé.")
+                        val targetPlayer = Bukkit.getPlayer(target.accountId)
+                        if (targetPlayer != null) {
+                            player.inventory.addItem(OwnerGuiListener.createParcelKey(parcel))
+                                .values.forEach { player.world.dropItemNaturally(player.location, it) }
+                            player.sendMessage("§aVous avez reçu la clé de §e${parcel.label}§a : remettez-la à §e${target.displayName}§a.")
+                            targetPlayer.sendMessage("§aVous êtes maintenant locataire de la parcelle §e${parcel.label}§a.")
                         }
                     }
                 }
@@ -93,5 +101,6 @@ class ConfirmRentGui(
         
         private val plugin get() = BbParcels.instance
         private val rentalRepo by lazy { RentalRepository(BbParcels.instance.databaseManager) }
+        private val profileRepo by lazy { ProfileRepository(BbParcels.instance.databaseManager) }
     }
 }

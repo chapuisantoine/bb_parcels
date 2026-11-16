@@ -3,6 +3,8 @@ package com.bbparcels.database.repository
 import com.bbparcels.BbParcels
 import com.bbparcels.database.DatabaseManager
 import org.bukkit.Bukkit
+import java.math.BigDecimal
+import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Statement
 
@@ -11,6 +13,7 @@ data class Parcel(
     val regionId: String,
     val world: String,
     val label: String,
+    val weeklyPrice: BigDecimal,
     val description: String? = null,
     val status: ParcelStatus = ParcelStatus.AVAILABLE
 )
@@ -20,8 +23,9 @@ data class ParcelWithOwner(
     val regionId: String,
     val world: String,
     val label: String,
+    val weeklyPrice: BigDecimal,
     val status: ParcelStatus = ParcelStatus.AVAILABLE,
-    val ownerUuid: String?
+    val tenantProfile: ProfileInfo?
 )
 
 enum class ParcelStatus(val value: String) {
@@ -79,7 +83,7 @@ class ParcelRepository(
     }
 
     fun addParcel(parcel: Parcel): Int {
-        val sql = "INSERT INTO bb_parcels (server_id, region_id, world, label, description, status) VALUES (?, ?, ?, ?, ?, ?)"
+        val sql = "INSERT INTO bb_parcels (server_id, region_id, world, label, weekly_price, description, status) VALUES (?, ?, ?, ?, ?, ?, ?)"
         try {
             db.getConnection().use { conn ->
                 conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)
@@ -88,8 +92,9 @@ class ParcelRepository(
                     ps.setString(2, parcel.regionId)
                     ps.setString(3, parcel.world)
                     ps.setString(4, parcel.label)
-                    ps.setString(5, parcel.description)
-                    ps.setString(6, parcel.status.value)
+                    ps.setBigDecimal(5, parcel.weeklyPrice)
+                    ps.setString(6, parcel.description)
+                    ps.setString(7, parcel.status.value)
                     ps.executeUpdate()
                     ps.generatedKeys.use { rs ->
                         return if (rs.next()) rs.getInt(1) else -1
@@ -103,7 +108,7 @@ class ParcelRepository(
     }
     
     fun findByLabel(label: String): Parcel? {
-        val sql = "SELECT id, region_id, world, label, description, status FROM bb_parcels WHERE label = ? AND server_id = ?"
+        val sql = "SELECT id, region_id, world, label, weekly_price, description, status FROM bb_parcels WHERE label = ? AND server_id = ?"
         try {
             db.getConnection().use { conn ->
                 conn.prepareStatement(sql)
@@ -117,6 +122,7 @@ class ParcelRepository(
                             regionId    = rs.getString("region_id"),
                             world       = rs.getString("world"),
                             label       = rs.getString("label"),
+                            weeklyPrice = rs.getBigDecimal("weekly_price"),
                             description = rs.getString("description"),
                             status      = ParcelStatus.entries.first { it.value == rs.getString("status") },
                         )
@@ -131,13 +137,12 @@ class ParcelRepository(
     
     fun findByLabelWithOwner(label: String): ParcelWithOwner? {
         val sql = """
-            SELECT bb_parcels.id, bb_parcels.label, bb_parcels.region_id, bb_parcels.world,
-            bb_parcels.status, bb_rentals.tenant_uuid AS owner
-            FROM bb_parcels
-            LEFT JOIN bb_rentals
-                ON bb_rentals.parcel_id = bb_parcels.id
-                AND bb_rentals.status = 'active'
-            WHERE bb_parcels.server_id = ? AND bb_parcels.label = ?
+            SELECT p.id, p.label, p.region_id, p.world, p.weekly_price, p.status, 
+            pr.id AS tenant_id, pr.uuid AS tenant_uuid, pr.firstname, pr.lastname
+            FROM bb_parcels AS p
+            LEFT JOIN bb_rentals r ON r.parcel_id = p.id AND r.status = 'active'
+            LEFT JOIN profiles pr ON pr.id = r.tenant_profile_id
+            WHERE p.server_id = ? AND p.label = ?
             """.trimIndent()
         try {   
             db.getConnection().use { conn ->
@@ -146,15 +151,7 @@ class ParcelRepository(
                     ps.setString(1, serverId)
                     ps.setString(2, label)
                     ps.executeQuery().use { rs ->
-                        if (!rs.next()) return null
-                        return ParcelWithOwner(
-                            id          = rs.getInt("id"),
-                            label       = rs.getString("label"),
-                            regionId    = rs.getString("region_id"),
-                            world       = rs.getString("world"),
-                            status      = ParcelStatus.entries.first { it.value == rs.getString("status") },
-                            ownerUuid   = rs.getString("owner")   // null si pas de location active
-                        )
+                        return if (rs.next()) rs.toParcelWithOwner() else null
                     }
                 }
             }
@@ -165,7 +162,7 @@ class ParcelRepository(
     }
 
     fun findAll(): List<Parcel> {
-        val sql = "SELECT id, region_id, world, label, description, status FROM bb_parcels WHERE server_id = ?"
+        val sql = "SELECT id, region_id, world, label, weekly_price, description, status FROM bb_parcels WHERE server_id = ?"
         try {   
             db.getConnection().use { conn ->
                 conn.prepareStatement(sql)
@@ -179,6 +176,7 @@ class ParcelRepository(
                                 regionId    = rs.getString("region_id"),
                                 world       = rs.getString("world"),
                                 label       = rs.getString("label"),
+                                weeklyPrice = rs.getBigDecimal("weekly_price"),
                                 description = rs.getString("description"),
                                 status      = ParcelStatus.entries.first { it.value == rs.getString("status") },
                             )
@@ -195,14 +193,12 @@ class ParcelRepository(
     
     fun findAllWithOwners(): List<ParcelWithOwner> {
         val sql = """
-            SELECT bb_parcels.id, bb_parcels.label, bb_parcels.region_id, bb_parcels.world,
-            bb_parcels.status, bb_rentals.tenant_uuid AS owner
-            FROM bb_parcels
-
-            LEFT JOIN bb_rentals
-                ON bb_rentals.parcel_id = bb_parcels.id
-                AND bb_rentals.status = 'active'
-            WHERE bb_parcels.server_id = ?
+            SELECT p.id, p.label, p.region_id, p.world, p.weekly_price, p.status,
+            pr.id AS tenant_id, pr.uuid AS tenant_uuid, pr.firstname, pr.lastname 
+            FROM bb_parcels AS p
+            LEFT JOIN bb_rentals r ON r.parcel_id = p.id AND r.status = 'active'
+            LEFT JOIN profiles pr ON pr.id = r.tenant_profile_id
+            WHERE p.server_id = ? ORDER BY p.label
             """.trimIndent()
         try {   
             db.getConnection().use { conn ->
@@ -210,18 +206,7 @@ class ParcelRepository(
                 .use { ps ->
                     ps.setString(1, serverId)
                     ps.executeQuery().use { rs ->
-                        val result = mutableListOf<ParcelWithOwner>()
-                        while (rs.next()) {
-                            result += ParcelWithOwner(
-                                id          = rs.getInt("id"),
-                                label       = rs.getString("label"),
-                                regionId    = rs.getString("region_id"),
-                                world       = rs.getString("world"),
-                                status      = ParcelStatus.entries.first { it.value == rs.getString("status") },
-                                ownerUuid = rs.getString("owner")   // null si pas de location active
-                            )
-                        }
-                        return result
+                        return buildList { while (rs.next()) add(rs.toParcelWithOwner())}
                     }
                 }
             }
@@ -231,18 +216,18 @@ class ParcelRepository(
         }
     }
     
-    fun findAllOwnerParcels(playerUuid: String): List<Parcel> {
-        val sql = """SELECT p.id, p.label, p.region_id, p.world, p.status
+    fun findAllOwnerParcels(tenantProfileId: Int): List<Parcel> {
+        val sql = """SELECT p.id, p.label, p.region_id, p.world, p.weekly_price, p.status
                     FROM bb_parcels p
                     INNER JOIN bb_rentals r ON r.parcel_id = p.id AND r.status = 'active'
-                    WHERE r.tenant_uuid = ? AND p.server_id = ?
+                    WHERE r.tenant_profile_id = ? AND p.server_id = ?
                     
                 """.trimIndent() 
         try {   
             db.getConnection().use { conn ->
                 conn.prepareStatement(sql)
                 .use { ps ->
-                    ps.setString(1, playerUuid)
+                    ps.setInt(1, tenantProfileId)
                     ps.setString(2, serverId)
                     ps.executeQuery().use { rs ->
                         val result = mutableListOf<Parcel>()
@@ -252,6 +237,7 @@ class ParcelRepository(
                                 label = rs.getString("label"),
                                 regionId = rs.getString("region_id"),
                                 world = rs.getString("world"),
+                                weeklyPrice = rs.getBigDecimal("weekly_price"),
                                 status = ParcelStatus.entries.first { it.value == rs.getString("status") }
                             )
                         }
@@ -318,6 +304,17 @@ class ParcelRepository(
                     ps.setInt(1, parcelId)
                     ps.executeUpdate()
                 }
+                
+                conn.prepareStatement(
+                    """
+                    DELETE pay FROM bb_rent_payments pay
+                    INNER JOIN bb_rentals r ON r.id = pay.rental_id
+                    WHERE r.parcel_id = ?
+                    """.trimIndent()
+                ).use { ps ->
+                    ps.setInt(1, parcelId)
+                    ps.executeUpdate()
+                }
 
                 // 4. Parcelle
                 conn.prepareStatement("DELETE FROM bb_parcels WHERE id = ?").use { ps ->
@@ -335,5 +332,24 @@ class ParcelRepository(
                 conn.autoCommit = true
             }
         }
+    }
+    
+    private fun ResultSet.toParcelWithOwner(): ParcelWithOwner {
+        val tenantId = getInt("tenant_id")
+        val tenant = if (wasNull()) null else ProfileInfo(
+            id = tenantId,
+            accountUuid = getString("tenant_uuid"),
+            firstname = getString("firstname"),
+            lastname = getString("lastname")
+        )
+        return ParcelWithOwner(
+            id = getInt("id"),
+            label = getString("label"),
+            regionId = getString("region_id"),
+            world = getString("world"),
+            weeklyPrice = getBigDecimal("weekly_price"),
+            status = ParcelStatus.from(getString("status")),
+            tenantProfile = tenant
+        )
     }
 }

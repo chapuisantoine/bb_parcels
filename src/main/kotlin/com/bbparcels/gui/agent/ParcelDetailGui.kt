@@ -3,6 +3,7 @@ package com.bbparcels.gui.agent
 import com.bbparcels.BbParcels
 import com.bbparcels.database.repository.ParcelStatus
 import com.bbparcels.database.repository.ParcelWithOwner
+import com.bbparcels.database.repository.ProfileInfo
 import com.bbparcels.database.repository.RentalMemberRepository
 import com.bbparcels.gui.BbGui
 import com.bbparcels.gui.owner.OwnerGuiListener
@@ -16,7 +17,7 @@ import org.bukkit.inventory.ItemStack
 
 class ParcelDetailGui private constructor(
     private val parcel: ParcelWithOwner,
-    members: List<String>
+    members: List<ProfileInfo>
 ) : BbGui("[BB] Détails de la parcelle"){
     
     override val permission = "bbparcels.agentImmo"
@@ -48,13 +49,7 @@ class ParcelDetailGui private constructor(
                 player.sendMessage("§aVous avez reçu une clé de la parcelle §e${parcel.label}§a.")
             }
             SLOT_RENT_UNRENT -> when (parcel.status) {
-                ParcelStatus.AVAILABLE -> {
-                    val nearby = player.getNearbyEntities(RADIUS, RADIUS, RADIUS)
-                        .filterIsInstance<Player>()
-                        .map {it.uniqueId.toString()}
-                    ChooseTenantGui(parcel, nearby, 0).open(player)
-                    
-                }
+                ParcelStatus.AVAILABLE -> ChooseTenantGui.open(player, parcel)
                 ParcelStatus.RENTED -> ConfirmUnrentGui(parcel).open(player)
                 ParcelStatus.DISABLED -> {}
             }
@@ -71,12 +66,10 @@ class ParcelDetailGui private constructor(
         meta.lore = buildList {
             add("§7Statut de la parcelle : §e${Utils.statusLabel(parcel.status)}") 
             
-            if (parcel.ownerUuid != null) {
-                val ownerName = Utils.playerName(parcel.ownerUuid)
-                add("§7Locataire : §e${ownerName}")
-            } else {
+            if (parcel.tenantProfile != null) 
+                add("§7Locataire : §e${parcel.tenantProfile.displayName}")
+             else 
                 add("§7Locataire : §ePas de locataire")
-            }
             
             val world = Bukkit.getWorld(parcel.world)
             if (world != null){
@@ -89,7 +82,7 @@ class ParcelDetailGui private constructor(
                     add("§7Région : §e${region.id}")
             }
             
-            add("§7Prix de la location : XXXX") //TODO a faire quand il y aura la gestion des prix    
+            add("§7Prix de la location : §e${parcel.weeklyPrice}")
         }
         
         item.itemMeta = meta
@@ -103,8 +96,6 @@ class ParcelDetailGui private constructor(
         private const val SLOT_RENT_UNRENT = 40
         private const val SLOT_GENERATE_KEY = 38
         private const val SLOT_RETURN = 43
-        
-        private const val RADIUS = 20.0
         
         private val plugin get() = BbParcels.instance
         private val rentalMemberRepo by lazy {RentalMemberRepository(plugin.databaseManager)}

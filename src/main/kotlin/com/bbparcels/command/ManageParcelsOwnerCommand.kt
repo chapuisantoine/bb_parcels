@@ -9,7 +9,6 @@ import com.sk89q.worldguard.WorldGuard
 import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
-import java.util.*
 
 class AddMemberCommand(
     private val plugin: BbParcels,
@@ -20,6 +19,8 @@ class AddMemberCommand(
     private val parcelRepo = ParcelRepository(plugin.databaseManager)
     private val rentalRepo = RentalRepository(plugin.databaseManager)
     private val rentalMemberRepo = RentalMemberRepository(plugin.databaseManager)
+    private val profileRepo = ProfileRepository(db = plugin.databaseManager)
+
     
     override fun execute(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
@@ -28,32 +29,37 @@ class AddMemberCommand(
         }
         
         if (args.size < 2) {
-            sender.sendMessage("§cUsage : /myparcel <label> add <playerName>")
+            sender.sendMessage("§cUsage : /myparcel <label> add <profileId>")
             return true
         }
         
         val label = args[0]
-        val toAddPlayerName = args[1]
-        val toAddPlayer = Bukkit.getPlayer(toAddPlayerName)
-        
-        if (toAddPlayer == null){
-            sender.sendMessage("§cCe joueur n'existe pas.")
+        val profileId = args[1].toIntOrNull() ?: run {
+            sender.sendMessage("§cUsage : /myparcel <label> add <profileId>")
             return true
         }
         
+        val onlineAccounts = Bukkit.getOnlinePlayers().map { it.uniqueId.toString() }.toSet()
+        
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
-            val ownerParcels = parcelRepo.findAllOwnerParcels(sender.uniqueId.toString())
-            val parcel = ownerParcels.find {it.label == label}
+            val senderProfile = profileRepo.findActiveProfile(sender.uniqueId.toString())
+            val toAddProfile  = profileRepo.findById(profileId)
+            val isPlayed = toAddProfile != null && toAddProfile.accountUuid in onlineAccounts &&
+                profileRepo.findActiveProfile(toAddProfile.accountUuid)?.id == toAddProfile.id
+            val parcel = senderProfile?.let {
+                parcelRepo.findAllOwnerParcels(senderProfile.id)
+                .find { it.label == label }
+            }
             val rental = parcel?.let {rentalRepo.findActiveByParcelId(parcel.id)}
-            val membersUuid = parcel?.let {rentalMemberRepo.findMembers(it.id)}
-            val isIn =  membersUuid?.contains(toAddPlayer.uniqueId.toString()) == true
+            val memberIds = parcel?.let {rentalMemberRepo.findMembers(it.id)}
+            val isIn =  memberIds?.contains(toAddProfile) == true
             val added = when {
-                parcel == null || rental == null || isIn -> false
+                parcel == null || toAddProfile == null || !isPlayed || rental == null || isIn -> false
                 else -> {
                     rentalMemberRepo.addMember(
                          RentalMember(
                             rentalId = rental.id,
-                            memberUuid = toAddPlayer.uniqueId.toString(),
+                            memberProfileId = toAddProfile.id,
                             role = RentalMemberRole.MEMBER
                         )
                     )
@@ -61,24 +67,24 @@ class AddMemberCommand(
             }
             
             val message = when {
+                toAddProfile == null -> "§cCe joueur n'existe pas."
                 parcel == null -> "§cVous n'avez pas cette parcelle."
                 rental == null -> "§cCette parcelle n'a pas de location active."
+                !isPlayed -> "§c Le joueur §e${toAddProfile.displayName} §cn'est pas connecté."
                 isIn -> "§cCe joueur fait déjà partie de la parcelle."
                 !added -> "§cErreur lors de l'ajout du joueur."
-                else -> "§a✔ Le joueur §e${toAddPlayer.name} §aa été ajouté à la parcelle §e$label §a!"
+                else -> "§a✔ Le joueur §e${toAddProfile.displayName} §aa été ajouté à la parcelle §e$label §a!"
             }
-            Bukkit.getScheduler().runTask(plugin, Runnable {
-
-                if (added && parcel != null) {
-                    val playerUuid = toAddPlayer.uniqueId
+            Bukkit.getScheduler().runTask(plugin, Runnable {  
+                if (added && toAddProfile != null && parcel != null) {
                     Bukkit.getWorld(parcel.world)?.let {world ->
                         WorldGuard.getInstance().platform.regionContainer
                         .get(BukkitAdapter.adapt(world))
                         ?.getRegion(parcel.regionId)
-                        ?.members?.addPlayer(playerUuid)
+                        ?.members?.addPlayer(toAddProfile.accountId)
                     }
-                    memberCache.onMemberAdded(label, playerUuid.toString())
-                    Bukkit.getPlayer(playerUuid)?.sendMessage("§aVous avez été ajouté à la parcelle §e${parcel.label}§a.")
+                    memberCache.onMemberAdded(label, toAddProfile)
+                    Bukkit.getPlayer(toAddProfile.accountId)?.sendMessage("§aVous avez été ajouté à la parcelle §e${parcel.label}§a.")
                 }
                 sender.sendMessage(message)
             })
@@ -86,16 +92,15 @@ class AddMemberCommand(
         
         return true
     }
-    
 
-    override fun tabComplete(sender: CommandSender, args: List<String>): List<String> {
-        return if (sender is Player) when (args.size) {
-            1 -> parcelCache.parcelsByOwner(sender.uniqueId.toString(), args[0])
-            2 -> listOf("add").filter {it.startsWith(args[1], ignoreCase = true)}
-            3 -> memberCache.membersNotOf(args[0], sender, args[2])
-            else -> emptyList()
-        } else emptyList()
-    }
+    // override fun tabComplete(sender: CommandSender, args: List<String>): List<String> {
+    //     return if (sender is Player) when (args.size) {
+    //         1 -> parcelCache.parcelsByOwner(sender.uniqueId.toString(), args[0])
+    //         2 -> listOf("add").filter {it.startsWith(args[1], ignoreCase = true)}
+    //         3 -> memberCache.membersNotOf(args[0], sender, args[2])
+    //         else -> emptyList()
+    //     } else emptyList()
+    // }
 }
 
 
@@ -107,6 +112,7 @@ class RemoveMemberCommand(
 
     private val parcelRepo = ParcelRepository(plugin.databaseManager)
     private val rentalMemberRepo = RentalMemberRepository(plugin.databaseManager)
+    private val profileRepo = ProfileRepository(plugin.databaseManager)
 
     override fun execute(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
@@ -114,45 +120,48 @@ class RemoveMemberCommand(
             return true
         }
         if (args.size < 2) {
-            sender.sendMessage("§cUsage : /myparcel <label> remove <playerName>")
+            sender.sendMessage("§cUsage : /myparcel <label> remove <profileId>")
             return true
         }
 
-        val label    = args[0]
-        val playerName     = args[1]
-        val senderUuid = sender.uniqueId.toString()
+        val label = args[0]
+        val profileId = args[1].toIntOrNull() ?: run {
+            sender.sendMessage("§cUsage : /myparcel <label> remove <profileId>")
+            return true
+        }
         
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
-            val parcel = parcelRepo.findAllOwnerParcels(senderUuid)
-                .find { it.label.equals(label, ignoreCase = true) }
-            val targetUuid = parcel?.let {p ->
-                rentalMemberRepo.findMembers(p.id).firstOrNull {uuid ->
-                    Bukkit.getOfflinePlayer(UUID.fromString(uuid)).name.equals(playerName, ignoreCase = true)
-                }
+            val senderProfile = profileRepo.findActiveProfile(sender.uniqueId.toString())
+            val profileToRemove = profileRepo.findById(profileId)
+            val parcel = senderProfile?.let {
+                parcelRepo.findAllOwnerParcels(senderProfile.id)
+                .find {it.label == label}
             }
+            val memberIds = parcel?.let {rentalMemberRepo.findMembers(it.id)}
+            val isIn =  memberIds?.contains(profileToRemove) == true
             val deleted = when {
-                parcel == null || targetUuid == null || targetUuid == senderUuid -> false
-                else -> rentalMemberRepo.deleteMember(parcel.label, targetUuid)
+                parcel == null || profileToRemove == null || profileToRemove == senderProfile -> false
+                else -> rentalMemberRepo.deleteMember(parcel.label, profileToRemove.id)
             }
             val message = when {
                 parcel == null -> "§cVous n'avez pas cette parcelle."
-                targetUuid == null -> "§c§e$playerName §cn'est pas membre de cette parcelle."
-                targetUuid == senderUuid -> "§cVous ne pouvez pas vous retirer de votre propre parcelle."
+                profileToRemove == null -> "§cJoueur introuvable."
+                profileToRemove == senderProfile -> "§cVous ne pouvez pas vous retirer de votre propre parcelle."
+                !isIn -> "§cCe joueur ne fait pas partie de la parcelle."
                 !deleted -> "§cErreur lors de la suppression."
-                else -> "§a✔ §e$playerName §aa été retiré de la parcelle §e$label§a."
+                else -> "§a✔ §e${profileToRemove.displayName} §aa été retiré de la parcelle §e$label§a."
             }
             
             Bukkit.getScheduler().runTask(plugin, Runnable {
-                if (deleted && parcel != null) {
-                    val playerUuid = UUID.fromString(targetUuid)
+                if (deleted && profileToRemove != null && parcel != null) {
                     Bukkit.getWorld(parcel.world)?.let {world ->
                         WorldGuard.getInstance().platform.regionContainer
                             .get(BukkitAdapter.adapt(world))
                             ?.getRegion(parcel.regionId)
-                            ?.members?.removePlayer(playerUuid)
+                            ?.members?.removePlayer(profileToRemove.accountId)
                     }
-                    memberCache.onMemberRemoved(label, playerUuid.toString())
-                    Bukkit.getPlayer(playerUuid)?.sendMessage("§cVous avez été retiré de la parcelle §e${parcel.label}§c.")
+                    memberCache.onMemberRemoved(label, profileToRemove.id)
+                    Bukkit.getPlayer(profileToRemove.accountId)?.sendMessage("§cVous avez été retiré de la parcelle §e${parcel.label}§c.")
                 }
                 sender.sendMessage(message)
             })
@@ -160,20 +169,21 @@ class RemoveMemberCommand(
         return true
     }
 
-    override fun tabComplete(sender: CommandSender, args: List<String>): List<String> {
-        return if (sender is Player) when (args.size) {
-            1 -> parcelCache.parcelsByOwner(sender.uniqueId.toString(), args[0])
-            2 -> listOf("remove").filter {it.startsWith(args[1], ignoreCase = true)}
-            3 -> memberCache.membersOf(args[0], sender, args[2])
-            else -> emptyList()
-        } else emptyList()
-    }
+    // override fun tabComplete(sender: CommandSender, args: List<String>): List<String> {
+    //     return if (sender is Player) when (args.size) {
+        //     1 -> parcelCache.parcelsByOwner(sender.uniqueId.toString(), args[0])
+        //     2 -> listOf("remove").filter {it.startsWith(args[1], ignoreCase = true)}
+        //     3 -> memberCache.membersOf(args[0], sender, args[2])
+        //     else -> emptyList()
+        // } else emptyList()
+    // }
 }
 
 class ListMemberCommand(private val plugin: BbParcels) : SubCommand {
 
     private val parcelRepo = ParcelRepository(plugin.databaseManager)
     private val rentalMemberRepo = RentalMemberRepository(plugin.databaseManager)
+    private val profileRepo = ProfileRepository(plugin.databaseManager)
 
     override fun execute(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
@@ -188,16 +198,18 @@ class ListMemberCommand(private val plugin: BbParcels) : SubCommand {
         val label = args[0]
         
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
-            val ownerParcels = parcelRepo.findAllOwnerParcels(sender.uniqueId.toString())
-            val parcel = ownerParcels.find { it.label == label }
-            val membersUuid = parcel?.let {rentalMemberRepo.findMembers(it.id)}
+            val senderProfile = profileRepo.findActiveProfile(sender.uniqueId.toString())
+            val parcel = senderProfile?.let {
+                parcelRepo.findAllOwnerParcels(senderProfile.id)
+                .find { it.label == label }
+            }
+            val membersIds = parcel?.let {rentalMemberRepo.findMembers(it.id)}
             val lines = when {
                 parcel == null -> listOf("§cVous n'avez pas cette parcelle.")
-                membersUuid.isNullOrEmpty() -> listOf("§7Aucun membre sur la parcelle §e$label§7.")
-                else -> { listOf("§6§lMembres de §e$label §6§l(${membersUuid.size}) :") +
-                    membersUuid.map {uuid ->
-                        val name = Bukkit.getOfflinePlayer(UUID.fromString(uuid)).name
-                        "§7- §e$name"
+                membersIds.isNullOrEmpty() -> listOf("§7Aucun membre sur la parcelle §e$label§7.")
+                else -> { listOf("§6§lMembres de §e$label §6§l(${membersIds.size}) :") +
+                    membersIds.map {profil ->
+                        "§7- §e${profil.displayName}"
                     }
                 }
             }

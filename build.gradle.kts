@@ -66,3 +66,11 @@ tasks.processResources {
         expand(props)
     }
 }
+
+tasks.register<Copy>("deployArclight") {
+    group = "bb"
+    description = "Build le shadowJar et le copie dans le serveur Arclight local"
+    dependsOn(tasks.shadowJar)
+    from(tasks.shadowJar.flatMap { it.archiveFile })
+    into(layout.projectDirectory.dir("../outils/arclight/plugins"))
+}

@@ -1,6 +1,7 @@
 package com.bbparcels.command
 
 import com.bbparcels.BbParcels
+import com.bbparcels.cache.ActiveProfileCache
 import com.bbparcels.cache.MemberCache
 import com.bbparcels.cache.ParcelCache
 import com.bbparcels.database.repository.Parcel
@@ -31,15 +32,21 @@ class AddParcelCommand(
             sender.sendMessage("§cCette commande doit être exécutée en jeu.")
             return true
         }
-        if (args.size < 2) {
-            sender.sendMessage("§cUsage : /parceladmin add <region_id> <label> [description...]")
+        if (args.size < 3) {
+            sender.sendMessage("§cUsage : /parceladmin add <region_id> <label> <weeklyPrice> [description...]")
             return true
         }
 
-        val regionId    = args[0].lowercase()
-        val label       = args[1]
-        val description = if (args.size > 2) args.drop(2).joinToString(" ") else null
-        val world       = sender.world
+        val regionId = args[0].lowercase()
+        val label = args[1]
+        val weeklyPrice = args[2].toBigDecimalOrNull()
+        if (weeklyPrice == null || weeklyPrice <= 0.toBigDecimal() ) {
+            sender.sendMessage("§cEntrez un prix correct.")
+            return true
+        }
+        
+        val description = if (args.size > 3) args.drop(3).joinToString(" ") else null
+        val world = sender.world
 
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
             val regionManager = WorldGuard.getInstance()
@@ -57,6 +64,7 @@ class AddParcelCommand(
                             regionId = regionId,
                             world = world.name,
                             label = label,
+                            weeklyPrice = weeklyPrice,
                             description = description
                         )
                     ) 
@@ -73,7 +81,8 @@ class AddParcelCommand(
             }
             
             Bukkit.getScheduler().runTask(plugin, Runnable {
-                parcelCache.onParcelAdded(label)
+                if (added > 0)
+                    parcelCache.onParcelAdded(label)
                 sender.sendMessage(message)
             })
             
@@ -137,8 +146,8 @@ class FindParcelCommand(
                         val max = region.maximumPoint
                         val x = (min.x + max.x) / 2
                         val z = min.z - 2
-                        val y = world.getHighestBlockAt(x, z)
-                        val coords = "§e(${"%.1f".format(x)}, ${"%.1f".format(y)}, ${"%.1f".format(z)})"
+                        val y = world.getHighestBlockYAt(x, z) + 1
+                        val coords = "§e($x, $y, $z)"
                         TextComponent("§7Parcelle §a${parcel.label} §7→ $coords").apply {
                             clickEvent = ClickEvent(
                                 ClickEvent.Action.RUN_COMMAND,
@@ -193,7 +202,8 @@ class ChangeParcelStatusCommand(
                 else -> "§a✔ Parcelle §e${parcel.label} §a$doneLabel."
             }
             Bukkit.getScheduler().runTask(plugin, Runnable {
-                parcelCache.onParcelStatusChanged(label, to)
+                if (changed)
+                    parcelCache.onParcelStatusChanged(label, to)
                 sender.sendMessage(message)
             })
         })
@@ -242,7 +252,8 @@ class DeleteParcelCommand(
             }
             
             Bukkit.getScheduler().runTask(plugin, Runnable {
-                parcelCache.onParcelRemoved(label)
+                if (deleted)
+                    parcelCache.onParcelRemoved(label)
                 sender.sendMessage(message)
             })
         })
@@ -352,7 +363,8 @@ class GiveParcelKeyCommand(
 class RefreshCacheCommand(
     private val plugin: BbParcels,
     private val parcelCache: ParcelCache,
-    private val memberCache: MemberCache
+    private val memberCache: MemberCache,
+    private val activeProfileCache: ActiveProfileCache
     ) : SubCommand {
 
     override fun execute(sender: CommandSender, args: List<String>): Boolean {
@@ -367,6 +379,8 @@ class RefreshCacheCommand(
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
             parcelCache.load()
             memberCache.load()
+            activeProfileCache.refreshAllOnline()
+            
             
             Bukkit.getScheduler().runTask(plugin, Runnable {
                 sender.sendMessage("§a✔ Cache bien rechargé depuis la base.")

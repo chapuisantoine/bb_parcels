@@ -13,15 +13,15 @@ import org.bukkit.inventory.ItemStack
 
 class ListAddMemberGui (
     private val parcel: ParcelWithOwner,
-    private val nearbyPlayers: List<String>,
+    private val candidates: List<ProfileInfo>,
     private val page: Int
 ) : BbGui("[BB] Ajout de membres") {
     
-    private val totalPages = ((nearbyPlayers.size - 1) / CONTENT_SLOTS.size).coerceAtLeast(0)
+    private val totalPages = ((candidates.size - 1) / CONTENT_SLOTS.size).coerceAtLeast(0)
 
     init {
         Utils.fillBorders(inventory)
-        nearbyPlayers.drop(page * CONTENT_SLOTS.size)
+        candidates.drop(page * CONTENT_SLOTS.size)
             .take(CONTENT_SLOTS.size)
             .forEachIndexed { i, player -> 
                 inventory.setItem(CONTENT_SLOTS[i], Utils.buildHeadItem(player))
@@ -35,33 +35,32 @@ class ListAddMemberGui (
 
     override fun onClick(player: Player, slot: Int, item: ItemStack) {
         when (slot) {
-            SLOT_PREV   -> ListAddMemberGui(parcel, nearbyPlayers, page - 1).open(player)
-            SLOT_NEXT   -> ListAddMemberGui(parcel, nearbyPlayers, page + 1).open(player)
+            SLOT_PREV   -> ListAddMemberGui(parcel, candidates, page - 1).open(player)
+            SLOT_NEXT   -> ListAddMemberGui(parcel, candidates, page + 1).open(player)
             SLOT_RETURN -> OwnerMenuGui.open(player, parcel)
             in CONTENT_SLOTS -> {
-                val target = Bukkit.getPlayer(
-                    nearbyPlayers.getOrNull(page * CONTENT_SLOTS.size + CONTENT_SLOTS.indexOf(slot)) ?: return
-                )?: return player.sendMessage("§cCe joueur n'est plus connecté.")
+                val target = candidates.getOrNull(page * CONTENT_SLOTS.size + CONTENT_SLOTS.indexOf(slot))?: return 
                 addMember(player, target, parcel)
             }
         }
     }
     
         
-    private fun addMember(player: Player, target: Player, parcel: ParcelWithOwner): Boolean {
+    private fun addMember(player: Player, target: ProfileInfo, parcel: ParcelWithOwner): Boolean {
         
         Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
+            val playerProfile = profileRepo.findActiveProfile(player.uniqueId.toString())
             val rental = rentalRepo.findActiveByParcelId(parcel.id)
-            val membersUuid = rentalMemberRepo.findMembers(parcel.id)
-            val isNotOwner = rental == null || rental.tenantUuid != player.uniqueId.toString()
-            val isAlreadyMember = target.uniqueId.toString() in membersUuid
+            val members = rentalMemberRepo.findMembers(parcel.id)
+            val isNotOwner = rental == null || rental.tenantProfileId != playerProfile?.id
+            val isAlreadyMember = members.any { it.id == target.id }
             val added = when {
                 rental == null || isNotOwner || isAlreadyMember -> false
                 else -> {
                     rentalMemberRepo.addMember(
                         RentalMember(
                             rentalId = rental.id,
-                            memberUuid = target.uniqueId.toString(),
+                            memberProfileId = target.id,
                             role = RentalMemberRole.MEMBER
                         )
                     )
@@ -73,7 +72,7 @@ class ListAddMemberGui (
                 isAlreadyMember -> "§cCe joueur fait déjà partie de la parcelle."
                 isNotOwner -> "§cVous n'êtes plus locataire de cette parcelle."
                 !added -> "§cErreur lors de l'ajout du joueur."
-                else -> "§a✔ Le joueur §e${target.name} §aa été ajouté à la parcelle §e${parcel.label} §a!"
+                else -> "§a✔ Le joueur §e${target.displayName} §aa été ajouté à la parcelle §e${parcel.label} §a!"
             }
             Bukkit.getScheduler().runTask(plugin, Runnable {
                 if (added) {
@@ -81,10 +80,10 @@ class ListAddMemberGui (
                         WorldGuard.getInstance().platform.regionContainer
                         .get(BukkitAdapter.adapt(world))
                         ?.getRegion(parcel.regionId)
-                        ?.members?.addPlayer(target.uniqueId)
+                        ?.members?.addPlayer(target.accountId)
                     }
-                    plugin.memberCache.onMemberAdded(parcel.label, target.uniqueId.toString())
-                    target.sendMessage("§a✔ Vous avez été ajouté à la parcelle §e${parcel.label} §a!")
+                    plugin.memberCache.onMemberAdded(parcel.label, target)
+                    Bukkit.getPlayer(target.accountId)?.sendMessage("§aVous avez été ajouté à la parcelle §e${parcel.label}§a.")
                 }
                 player.sendMessage(message)
                 OwnerMenuGui.open(player, parcel)
@@ -100,11 +99,30 @@ class ListAddMemberGui (
         private const val SLOT_PREV = 39
         private const val SLOT_NEXT = 41
         private const val SLOT_RETURN = 43
+        private const val RADIUS = 20.0
         
         private val plugin get() = BbParcels.instance
         
         private val rentalRepo by lazy {RentalRepository(BbParcels.instance.databaseManager)}
         private val rentalMemberRepo by lazy {RentalMemberRepository(BbParcels.instance.databaseManager)}
+        private val profileRepo by lazy { ProfileRepository(BbParcels.instance.databaseManager) }
+
         
+        fun open(player: Player, parcel: ParcelWithOwner) {
+            val nearbyUuids = player.getNearbyEntities(RADIUS, RADIUS, RADIUS)
+                .filterIsInstance<Player>()
+                .map { it.uniqueId.toString() }
+
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, Runnable {
+                val members = rentalMemberRepo.findMembers(parcel.id)
+                val candidates = profileRepo.findActiveProfiles(nearbyUuids)
+                    .filter { it !in members}
+
+                Bukkit.getScheduler().runTask(plugin, Runnable {
+                    if (!player.isOnline) return@Runnable
+                    ListAddMemberGui(parcel, candidates, 0).open(player)
+                })
+            })
+        }
     }
 }

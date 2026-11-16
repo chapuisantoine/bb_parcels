@@ -1,6 +1,7 @@
 package com.bbparcels.command
 
 import com.bbparcels.BbParcels
+import com.bbparcels.cache.ActiveProfileCache
 import com.bbparcels.cache.MemberCache
 import com.bbparcels.cache.ParcelCache
 import com.bbparcels.config.PluginConfig
@@ -14,7 +15,8 @@ import org.bukkit.entity.Player
 class AdminCommand(
     plugin: BbParcels,
     parcelCache: ParcelCache,
-    memberCache: MemberCache
+    memberCache: MemberCache,
+    activeProfileCache: ActiveProfileCache
     ) : CommandExecutor, TabCompleter {
 
     private val subCommands: Map<String, SubCommand> = mapOf(
@@ -25,7 +27,7 @@ class AdminCommand(
         "find" to FindParcelCommand(plugin, parcelCache),
         "givetablet" to GiveTabletCommand(),
         "givekey" to GiveParcelKeyCommand(plugin, parcelCache),
-        "refreshcache" to RefreshCacheCommand(plugin, parcelCache, memberCache)
+        "refreshcache" to RefreshCacheCommand(plugin, parcelCache, memberCache, activeProfileCache)
     )
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
@@ -52,7 +54,7 @@ class AdminCommand(
 
     private fun sendHelp(sender: CommandSender) {
         sender.sendMessage("§6§l=== Parcels Admin ===")
-        sender.sendMessage("§e/parceladmin add <region_id> <label> [description]")
+        sender.sendMessage("§e/parceladmin add <region_id> <label> <weeklyPrice> [description]")
         sender.sendMessage("§e/parceladmin find <label>")
         sender.sendMessage("§e/parceladmin enable <label>")
         sender.sendMessage("§e/parceladmin disable <label>")
@@ -67,12 +69,13 @@ class AgentCommand(
     plugin: BbParcels,
     pluginConfig: PluginConfig,
     parcelCache: ParcelCache,
-    memberCache: MemberCache
+    memberCache: MemberCache,
+    activeProfileCache: ActiveProfileCache
     ) : CommandExecutor, TabCompleter {
     
 
     private val subCommands: Map<String, SubCommand> = mapOf(
-        "rent"    to RentParcelCommand(plugin, parcelCache, memberCache),
+        "rent"    to RentParcelCommand(plugin, parcelCache, memberCache, activeProfileCache),
         "list" to ListParcelCommand(plugin),
         "info" to InfoParcelCommand(plugin, parcelCache),
         "unrent" to UnrentParcelCommand(plugin, parcelCache, memberCache),
@@ -112,6 +115,7 @@ class AgentCommand(
 class OwnerCommand (
     plugin: BbParcels,
     private val parcelCache: ParcelCache,
+    private val activeProfilCache: ActiveProfileCache,
     memberCache: MemberCache
     ): CommandExecutor, TabCompleter {
         
@@ -136,7 +140,9 @@ class OwnerCommand (
         if (sender !is Player) return emptyList()
 
         return when (args.size) {
-            1 -> parcelCache.parcelsByOwner(sender.uniqueId.toString(), args[0])
+            1 -> activeProfilCache.get(sender.uniqueId)
+                ?.let { parcelCache.parcelsRentedBy(it.id, args[0]) }
+                .orEmpty()
             2 -> subCommands.keys.filter { it.startsWith(args[1].lowercase()) }
             else -> {
                 val sub = subCommands[args[1].lowercase()] ?: return emptyList()

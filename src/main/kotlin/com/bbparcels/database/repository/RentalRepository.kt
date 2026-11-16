@@ -11,7 +11,7 @@ import java.time.LocalDateTime
 data class Rental(
     val id: Int = 0,
     val parcelId: Int,
-    val tenantUuid: String,
+    val tenantProfileId: Int,
     val startDate: LocalDateTime,
     val endDate: LocalDateTime? = null,
     val status: RentalStatus = RentalStatus.ACTIVE    
@@ -47,13 +47,14 @@ class RentalRepository(
                 }
                 
                 val rentalId = conn.prepareStatement(
-                    "INSERT INTO bb_rentals (parcel_id, tenant_uuid, start_date, status) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO bb_rentals (parcel_id, tenant_profile_id, start_date, next_due_date, status) VALUES (?, ?, ?, ?, ?)",
                         Statement.RETURN_GENERATED_KEYS
                 ).use {ps ->
                     ps.setInt(1, rental.parcelId)
-                    ps.setString(2, rental.tenantUuid)
+                    ps.setInt(2, rental.tenantProfileId)
                     ps.setTimestamp(3, Timestamp.valueOf(rental.startDate))
-                    ps.setString(4, rental.status.value)
+                    ps.setTimestamp(4, Timestamp.valueOf(rental.startDate.plusDays(7)))
+                    ps.setString(5, rental.status.value)
                     ps.executeUpdate()
                     ps.generatedKeys.use { rs ->
                         if (rs.next()) rs.getInt(1)
@@ -62,10 +63,10 @@ class RentalRepository(
                 }
 
                 conn.prepareStatement(
-                    "INSERT INTO bb_rental_members (rental_id, member_uuid, role, added_at) VALUES (?, ?, ?, ?)"
+                    "INSERT INTO bb_rental_members (rental_id, member_profile_id, role, added_at) VALUES (?, ?, ?, ?)"
                 ).use { ps ->
                     ps.setInt(1, rentalId)
-                    ps.setString(2, member.memberUuid)
+                    ps.setInt(2, member.memberProfileId)
                     ps.setString(3, member.role.value)
                     ps.setTimestamp(4, Timestamp.valueOf(member.addedAt))
                     ps.executeUpdate()
@@ -84,7 +85,7 @@ class RentalRepository(
     }
 
     fun findActiveByParcelId(parcelId: Int): Rental? {
-        val sql = "SELECT id, parcel_id, tenant_uuid, start_date, end_date, status FROM bb_rentals WHERE parcel_id = ? AND status = 'active'"
+        val sql = "SELECT id, parcel_id, tenant_profile_id, start_date, end_date, status FROM bb_rentals WHERE parcel_id = ? AND status = 'active'"
         try {
             db.getConnection().use { conn ->
                 conn.prepareStatement(sql)
@@ -95,7 +96,7 @@ class RentalRepository(
                         return Rental(
                             id         = rs.getInt("id"),
                             parcelId   = rs.getInt("parcel_id"),
-                            tenantUuid = rs.getString("tenant_uuid"),
+                            tenantProfileId = rs.getInt("tenant_profile_id"),
                             startDate  = rs.getTimestamp("start_date").toLocalDateTime(),
                             endDate    = rs.getTimestamp("end_date")?.toLocalDateTime(),
                             status     = RentalStatus.ACTIVE
@@ -109,7 +110,7 @@ class RentalRepository(
         }
     }
 
-    fun terminateWithMembers(rentalId: Int, parcelId: Int): List<String>? {
+    fun terminateWithMembers(rentalId: Int, parcelId: Int): List<ProfileInfo>? {
     db.getConnection().use { conn ->
         conn.autoCommit = false
         try {
@@ -129,11 +130,16 @@ class RentalRepository(
 
             // 2. Récupérer les membres avant de les supprimer
             val members = conn.prepareStatement(
-                "SELECT member_uuid FROM bb_rental_members WHERE rental_id = ?"
+                """
+                    SELECT pr.id, pr.uuid, pr.firstname, pr.lastname
+                    FROM bb_rental_members m
+                    INNER JOIN profiles pr ON pr.id = m.member_profile_id
+                    WHERE m.rental_id = ?
+                """.trimIndent()
             ).use { ps ->
                 ps.setInt(1, rentalId)
                 ps.executeQuery().use { rs ->
-                    buildList { while (rs.next()) add(rs.getString("member_uuid")) }
+                    buildList { while (rs.next()) add(rs.toProfileInfo()) }
                 }
             }
 
